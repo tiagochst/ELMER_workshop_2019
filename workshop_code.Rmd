@@ -1,0 +1,617 @@
+---
+title: "Workshop for multi-omics analysis with ELMER"
+author: "Benjamin P. Berman, Tiago C. Silva"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(dpi=300)
+```
+
+# Instructor names and contact information
+
+1. Benjamin P. Berman
+2. Tiago C. Silva
+
+# Workshop Description
+
+This workshop demonstrates how to perform ELMER analysis using matched RNA-seq
+and DNA methylation data.
+
+## Pre-requisites
+
+* Basic knowledge of R syntax
+* Familiarity with the SummarizedExperiment classes
+* Familiarity with ’omics data types including DNA methylation and gene expression
+
+## Workshop Participation
+
+Students will have a chance to run ELMER analysis on a provided `MultiAssayExperiment` 
+object created from TCGA data from GDC data portal.
+
+## Goals and objectives
+
+* gain familiarity ELMER input data, a MultiAssayExperiment object
+* Execute ELMER analysis on real data and understand its meaning
+
+#  R/Bioconductor packages used
+
+* [ELMER](http://bioconductor.org/packages/ELMER/)
+* [MultiAssayExperiment](http://bioconductor.org/packages/MultiAssayExperiment/)
+
+
+```{r, message=FALSE}
+library("ELMER")
+library("MultiAssayExperiment")
+```
+
+# Retrieving the data
+
+The RNA-seq data, DNA methylation data and patients metadata (i.e age, gender) used in this workshop is 
+structured as a MultiAssayExperiment. You can read more about a MultiAssayExperiment object at 	http://bioconductor.org/packages/MultiAssayExperiment/ 
+and https://bioconductor.github.io/BiocWorkshops/workflow-for-multi-omics-analysis-with-multiassayexperiment.html.
+
+Through the next section we will:
+
+1. load the data
+2. Verify the RNA-seq data
+3. Verify the DNA methylation data
+4. Verify the samples metadata
+
+## Download the data
+
+The data is available in this [google drive](https://drive.google.com/drive/folders/1N9GKy8rEdmNsPa3W1vZ7WnBaUlXky2L4?usp=sharing).
+
+## Loading the data
+
+```{r}
+mae <- readRDS("TCGA_ESCA_MAE_distal_regions.rds")
+mae
+```
+
+## Verify the RNA-seq data
+
+```{r}
+# check experiments
+experiments(mae)
+
+# Get the Gene expression object
+rna.seq <- mae[[2]]
+
+# nb of genes
+nrow(rna.seq)
+
+# nb of samples
+ncol(rna.seq)
+
+# Check genes metadata
+rowRanges(rna.seq)
+
+# Check genes expression
+assay(rna.seq)[1:4,1:4]
+```
+
+## Verify the DNA methylation data
+
+```{r}
+# check experiments
+experiments(mae)
+
+# Get the DNA methylation object
+dna.met <- mae[[1]]
+
+# nb of DNA methylation probes
+nrow(dna.met)
+
+# nb of samples
+ncol(dna.met)
+
+# Check DNA methylation probes metadata
+rowRanges(dna.met)[,1:4]
+
+# Check DNA methylation beta values
+assay(dna.met)[1:4,1:4]
+```
+
+
+## Verify the samples metadata
+
+```{r}
+# metadata can be accessed using the function colData
+# we will check the first 4 samples and their 4 columns
+colData(mae)[1:4,1:4]
+
+# or you can also access the metadata directly with the $
+mae$primary_diagnosis[1:4]
+
+# you can summarize the number of tissue type with the function table
+table(mae$definition)
+
+# or summarize the numbers of samples using two features
+table(mae$primary_diagnosis,mae$definition)
+```
+
+# Selecting the samples
+
+Since we will use only Primary solid Tumor samples we will remove the Metastatic and 
+Solid Tissue Normal samples from our object
+```{r}
+mae <- mae[, mae$definition == "Primary solid Tumor"]
+```
+
+
+# Performing ELMER analysis
+
+We will first define some parameters used in the majority of ELMER function
+```{r}
+# which is the column of the samples metadata defining our groups
+group.col <- "primary_diagnosis"
+
+# which are the grops withing the group.col that we want to compare 
+group1 <- "Adenocarcinoma, NOS"
+group2 <- "Squamous cell carcinoma, NOS"
+
+# Identify probes hypo in group1 or hypo in group2 ? 
+direction <- "hypo" # hypo in group 1
+
+cores <- 2
+mode <- "supervised"
+
+# Where do we want to save the results ?
+dir.out <- paste0("analysis/",group.col,"-",
+                  gsub("[[:punct:]]| ", ".", group1),
+                  "_vs_",
+                  gsub("[[:punct:]]| ", ".", group2),
+                  "_", mode,
+                  "/", direction)
+dir.create(dir.out, showWarnings = FALSE,recursive = T)
+```
+## Identifying hypo methylated distal probes between ESAD samples compared to ESCC samples
+
+```{r}
+# time expected with one core: 4 minuntes
+diff.probes <- get.diff.meth(data = mae, 
+                             group.col = group.col,
+                             group1 = group1,
+                             group2 = group2,
+                             diff.dir = direction, # Get probes hypometh. in group 1 
+                             cores = cores, 
+                             mode = mode,
+                             pvalue = 0.01, 
+                             sig.dif = 0.3,
+                             dir.out =  , 
+                             save = TRUE)
+# check the results
+head(diff.probes)
+```
+
+## Correlate RNA-seq expression and DNA methylation
+
+Now that we have our hypomethylated probes we will look for the 20 nearest genes  
+to each probes to identify  if any of these genes could being affected by the 
+hypomethylation in the distal regulatory region.
+
+
+```{r}
+# time expected less than one minute
+nearGenes <- GetNearGenes(data = mae, 
+                          probes =  diff.probes$probe, 
+                          numFlankingGenes = 20)
+head(nearGenes)
+```
+
+
+
+Now that we have our hypomethylated probes and the 20 nearest genes we want to identify 
+if any of these genes could being affected by the hypomethylatio in the distal regulatory region.
+
+
+```{r}
+# time expected  one minute
+pair <- get.pair(data = mae,
+                 nearGenes = nearGenes,
+                 group.col = group.col,
+                 group1 = group1,
+                 group2 = group2,
+                 mode = mode,
+                 diff.dir = direction, 
+                 raw.pvalue = 0.001,   
+                 Pe = 0.001, 
+                 filter.probes = TRUE,
+                 filter.percentage = 0.05,
+                 filter.portion = 0.3,
+                 dir.out =  dir.out,
+                 cores = cores, 
+                 label = direction)
+
+head(pair)
+```
+
+We can plot the correlation heatmap of DNA methylation and gene expression
+with the `heatmapPairs` function. We will plot only the first 100 pairs.
+
+```{r, fig.width=10, fig.height=4}
+heatmapPairs(data = mae, 
+             group.col = group.col,
+             group1 = group1,
+             group2 = group2,
+             subset = TRUE,
+             pairs = pair[1:100,],
+             filename =  NULL)
+```
+
+## Identifying TF enriched motifs on the hypomethylated regions
+
+We have hypomethylated regions that has a distal gene upregulated.
+We want to identify which is the MR TF binding to those regions and regulating the distal gene.
+First we identify which are the enriched motifs for those hypomethylated regions using 
+the function `get.enriched.motif`. This will output the enriched motifs and the respective
+hypomethylated probes with the motif signature around it 
+(since a DNA methylation probes is 1bp, we extended the search window to $\pm$ 250 bp).
+
+```{r,echo=TRUE, results='hide', fig.keep='all', message = FALSE}
+# time expected  less than one minute
+enriched.motif <- get.enriched.motif(data = mae,
+                                     probes = unique(pair$Probe), 
+                                     dir.out = dir.out,
+                                     label = direction,
+                                     min.incidence = 10,
+                                     lower.OR = 1.5)
+# check enriched motifs
+names(enriched.motif)[1:4]
+
+# and the paired hypomethylated probes with the motif signature
+enriched.motif$GATA4_HUMAN.H11MO.0.A
+```
+
+
+```{r}
+motif.result.file <- "analysis/primary_diagnosis-Adenocarcinoma..NOS_vs_Squamous.cell.carcinoma..NOS_supervised/hypo//getMotif.hypo.motif.enrichment.csv"
+
+motif.enrichment.plot(motif.enrichment = motif.result.file,
+                      significant = list(lowerOR = 2.0), 
+                      label = "hypo", 
+                      summary = TRUE,
+                      save = FALSE)  
+```
+
+## Inferring MR TF binding to hypomethylated regions
+
+Now that we have our enriched motifs, we have the following question: 
+- Which is the candidate master regulator Transcription factor binding to those regions ?
+
+It is important to highlight that since TF within the same family and subfamily have 
+very close motifs, they will likely be indentified to bind the same regions.
+You can check that by verifying the intersection of probes from our enrichment analysis results.
+
+```{r}
+length(enriched.motif$GATA4_HUMAN.H11MO.0.A)
+length(enriched.motif$GATA6_HUMAN.H11MO.0.A)
+length(intersect(enriched.motif$GATA4_HUMAN.H11MO.0.A,enriched.motif$GATA6_HUMAN.H11MO.0.A))
+```
+
+So more than 70% of probes are enriched for both GATA4 and GATA6.
+How could we infer which of those MR might be the one with higher impact ?
+
+For that ELMER correlates the TF expression vs the average mean methylation of the hypomethylated probes
+with a motif signature and rank them. We expect that a TF with higher expression and lower methylation in the 
+binding regions will be a better MR TF candidate than TF that are for example equally expressed on both groups.
+
+```{r}
+# time expected  ~5 minutes
+TF <- get.TFs(data = mae, 
+              group.col = group.col,
+              mode = mode,
+              group1 = group1,
+              group2 = group2,
+              diff.dir = direction,
+              enriched.motif = enriched.motif,
+              dir.out = dir.out,
+              label = direction, 
+              cores = cores)
+# Check the results for the GATA4_HUMAN.H11MO.0.A motif
+TF["GATA4_HUMAN.H11MO.0.A",1:5]
+```
+
+### Visualizing the results with TF ranking plot
+
+ELMER provides an easy way to visualize the rank of all human TF evaluated with the
+function `TF.rank.plot`. 
+
+```{r,echo=FALSE, results='hide', fig.keep='all', message = FALSE}
+load("analysis/primary_diagnosis-Adenocarcinoma..NOS_vs_Squamous.cell.carcinoma..NOS_supervised/hypo/getTF.hypo.TFs.with.motif.pvalue.rda")
+motif <-  "GATA4_HUMAN.H11MO.0.A"
+TF.rank.plot(motif.pvalue = TF.meth.cor, 
+             motif = motif,
+             save = FALSE) 
+```
+
+# Summarizing several ELMER analysis
+
+## MR TF heatmap 
+
+You can compare MR TF from several analysis plotting them as a heatmap.
+The code below uses the function `ELMER:::get.tabs`, which accepts as input 
+the directories of the results and if you want to select the MR TF within the 
+family of subfamily.
+
+
+In the directory `analysis_april_2019` we provide 4 results from different ELMER runs.
+```{r}
+analsysis.dir <- unique(dirname(dir("analysis_april_2019/",recursive = T,full.names = T)))
+analsysis.dir
+```
+
+The funtion `get.tabs` will summarize the results in several tables
+
+1. tab: a binary matrix saying if the TF was found or not in the analysis
+2. tab.pval: a matrix  with the MR TF p-value found in the analysis
+3. tab.or: a matrix  with the highest motif OR for the MR TF found in the analysis
+4. tf.or.table: a matrix  with 4 collums: MR TF, motif, FDR and analysis it was identified.
+
+```{r,echo=TRUE,warning=FALSE}
+classification <- "subfamily"
+tabs <- ELMER:::get.tabs(analsysis.dir,classification)
+names(tabs)
+
+# To be more readable we will change the path names to the analysis name
+analysis.names <- c( "COAD-READ (vs Normal)",
+                     "EAC (vs Normal)",
+                     "EAC (vs ESCC)",
+                     "PAAD (vs Normal)")
+for (i in 1:3) colnames(tabs[[i]]) <- analysis.names
+
+
+# 1.  a binary matrix saying if the TF was found or not in the analysis
+tab.binary <- tabs$tab
+head(tab.binary)
+
+# 2. a matrix  with the MR TF p-value found in the analysis
+tab.pval <- tabs$tab.pval
+head(tab.pval)
+
+# 3. a matrix  with the highest motif OR for the MR TF found in the analysis
+tab.or <- tabs$tab.or
+head(tab.or)
+
+# 4. a matrix  with 4 collums: MR TF, motif, FDR and analysis it was identified.
+tf.or.table <- tabs$tf.or.table
+
+# Rename analysis
+tf.or.table$analysis <- gsub("ESCA","EAC",paste0(basename(dirname(dirname(dirname(tf.or.table$analysis)))), 
+                               " (vs ",
+                               ifelse(grepl("Normal",tf.or.table$analysis),"Normal","ESCC"),")"))
+head(tf.or.table)
+```
+
+
+```{r, echo = TRUE, warning = FALSE, results = 'hide', fig.keep = 'all', message = FALSE}
+library(ComplexHeatmap)
+library(vegan)
+
+col <- ifelse(classification == "family","top.potential.TF.family", "top.potential.TF.subfamily")
+
+analysis.colors <- c(
+  "COAD-READ (vs Normal)" = '#ff964f',
+  "EAC (vs Normal)" = '#94e894',
+  "EAC (vs ESCC)" = '#eaadb9',
+  "PAAD (vs Normal)" = '#9ab9f9'                   
+)
+
+# get top TFs in each anaylsis
+labels <- ELMER:::get.top.tf.by.pval(tab.pval,top = nrow(tab.pval))
+
+hb = HeatmapAnnotation(df = data.frame("Mode" = rep("unsupervised",4),
+                                       "Analysis" = analysis.names),
+                       col = list("Analysis" = analysis.colors,
+                                  "Mode" = c("unsupervised" = "#ebd540",
+                                             "supervised" = "#718da5")),
+                       show_annotation_name = FALSE,
+                       show_legend = T,
+                       annotation_name_side = "left",
+                       annotation_name_gp = gpar(fontsize = 12))
+
+# Binary heatmap
+ht_list <- Heatmap(as.matrix(tab.binary),
+                   name = "Binary heatmap" ,
+                   col = c("1" = "black", "0" = "white"),
+                   column_names_gp = gpar(fontsize = 8),
+                   show_column_names = FALSE,
+                   use_raster = TRUE,
+                   na_col = "white",
+                   raster_device = c("png"),
+                   raster_quality = 2,
+                   show_row_names = F,
+                   show_heatmap_legend = TRUE,
+                   cluster_columns = FALSE,
+                   cluster_rows = TRUE,
+                   clustering_distance_rows = function(x) {
+                     vegan::vegdist(tab.binary,method = "jaccard",binary = TRUE)
+                   },
+                   clustering_method_rows = "average",
+                   top_annotation = hb,
+                   width = unit(5, "cm"),
+                   row_names_gp = gpar(fontsize = 1),
+                   column_title = paste0("Binrary MR TF Heatmap"), 
+                   column_title_gp = gpar(fontsize = 10), 
+                   row_title_gp = gpar(fontsize = 16)) 
+
+ht_list <-  ht_list + 
+  rowAnnotation(link = anno_mark(at = match(labels,rownames(tab.pval)), 
+                                 labels = labels,labels_gp = gpar(fontsize = 10)),
+                width = unit(1, "cm") + max_text_width(labels)
+  ) 
+draw(ht_list,
+     newpage = FALSE, 
+     column_title_gp = gpar(fontsize = 12, fontface = "bold"),
+     heatmap_legend_side = "right",
+     show_heatmap_legend = TRUE,
+     annotation_legend_side = "right")
+
+# Pvalue heatmap
+ht_list <- Heatmap(as.matrix(-log10(tab.pval)),
+                   name = "-log10 (FDR)" ,
+                   col = colorRampPalette(c('#3361A5', '#248AF3', '#14B3FF', 
+                                            '#88CEEF', '#C1D5DC', '#EAD397', 
+                                            '#FDB31A','#E42A2A', '#A31D1D'))(100),
+                   column_names_gp = gpar(fontsize = 8),
+                   show_column_names = FALSE,
+                   use_raster = TRUE,
+                   na_col = "white",
+                   raster_device = c("png"),
+                   raster_quality = 2,
+                   show_row_names = F,
+                   show_heatmap_legend = TRUE,
+                   cluster_columns = FALSE,
+                   cluster_rows = TRUE,
+                   clustering_distance_rows = function(x) {
+                     vegan::vegdist(tab.binary,method = "jaccard",binary = TRUE)
+                   },
+                   clustering_method_rows = "average",
+                   top_annotation = hb,
+                   width = unit(5, "cm"),
+                   row_names_gp = gpar(fontsize = 1),
+                   column_title = paste0("MR TF Heatmap"), 
+                   column_title_gp = gpar(fontsize = 10), 
+                   row_title_gp = gpar(fontsize = 16)) 
+
+ht_list <-  ht_list + 
+  rowAnnotation(link = anno_mark(at = match(labels,rownames(tab.pval)), 
+                                 labels = labels,labels_gp = gpar(fontsize = 10)),
+                width = unit(1, "cm") + max_text_width(labels)
+  ) 
+draw(ht_list,
+     newpage = TRUE,     
+     column_title_gp = gpar(fontsize = 12, fontface = "bold"),
+     heatmap_legend_side = "right",
+     show_heatmap_legend = TRUE,
+     annotation_legend_side = "right")
+```
+
+## MR TF expression vs DNA methylation at binding motifs
+
+Since we only provide one object used for two analysis ("EAC (vs Normal)"  and "EAC (vs ESCC)" )
+we will only plot the  MR TF expression vs DNA methylation at binding motifs
+for them.
+
+```{r,echo=TRUE, results='hide', fig.keep='all', message = FALSE,fig.height=8,fig.width=15,warning=FALSE}
+analsysis.dir.esca <- unique(dirname(dir("analysis_april_2019/ESCA/",recursive = T,full.names = T)))
+mae <- readRDS("TCGA_ESCA_MAE_distal_regions.rds")
+
+tab.pval.esca <- tab.pval[,2:3]
+
+library(ELMER)
+library(grid)
+library(ggplot2)
+library(ggpubr)
+library(dplyr)
+
+for (top in c(5)) {
+  
+  scatter.list <- list()
+  scatter.grid <- list()
+  scatter.labels <- c()
+  
+  for (path in analsysis.dir.esca) {
+    # Load of object with enriched motifs
+    load(dir(path = path, 
+             pattern = "getMotif.hypo.enriched.motifs.rda",
+             recursive = T,full.names = T)    
+    )
+    i <- which(path == analsysis.dir.esca)
+    
+    tumor <- basename(dirname(dirname(dirname(path))))
+    mae.plot <- mae
+    if (grepl("Squamous",path)) {
+      category <- "primary_diagnosis"
+      # keep only samples used in the analysis
+      mae.plot <- mae.plot[,mae.plot$primary_diagnosis %in% c("Adenocarcinoma, NOS", 
+                                                              "Squamous cell carcinoma, NOS") & 
+                             mae.plot$definition %in% c("Primary solid Tumor")]          
+    } else {
+      category <- "definition"
+      # keep only samples used in the analysis
+      mae.plot <- mae.plot[,mae.plot$primary_diagnosis %in% c("Adenocarcinoma, NOS") & 
+                             mae.plot$definition %in% c("Primary solid Tumor","Solid Tissue Normal")]
+    }
+    # get top Tfs
+    topTFs <- rownames(tab.pval)[head(sort(DelayedArray::rowMins(tab.pval.esca[,i,drop = F],na.rm = T), 
+                                           index.return = TRUE, decreasing = F)$ix, n = top)]
+    topTFs <- topTFs[1:top]
+    for (j in topTFs) {
+      TF <- j
+      scatter.labels <- c(scatter.labels,colnames(tab.pval.esca)[i])
+      
+      motif <- tf.or.table[tf.or.table$TF == j & 
+                             tf.or.table$analysis == colnames(tab.pval.esca)[i],"motif"][1]
+      
+      if (grepl("Squamous",path))   color.value <- c("#FF0000","#0000FF")
+      if (grepl("Adenocarcinoma.Solid.Tissue.Normal",path)) color.value <- c("#FF0000","#176d55")
+      
+      if (is.na(motif)) next
+      scatter <- scatter.plot(data = mae.plot,
+                              correlation = TRUE,
+                              byTF = list(TF = TF,
+                                          probe = enriched.motif[[motif]]), 
+                              category = category,
+                              ylim = c(0,25), 
+                              dots.size = 0.8,
+                              color.value = color.value,
+                              save = FALSE, 
+                              lm_line = TRUE) +
+        ylab(bquote(.(TF) ~ log[2](RSEM + 1))) + 
+        xlab(paste0("Avg. DNA met. at \n", length(enriched.motif[[motif]]),
+                    " CpGs w/ \n enriched motif ",
+                    sub("_HUMAN.H11MO.[0-1].[A-D]", "",  motif))
+        ) + theme(legend.position = "none", 
+                  plot.title = element_blank(),
+                  axis.title.y = element_text(size = 8, face = "bold"),
+                  axis.title.x = element_text(size = 8, face = "bold"),
+                  strip.background = element_rect(fill = analysis.colors[i + 1]),
+                  panel.grid.major = element_blank(),
+                  panel.grid.minor = element_blank(),
+                  # Remove panel background
+                  panel.background = element_blank()
+        )
+      
+      if(j == topTFs[1]){
+        gt <- gtable::gtable(widths = unit(0.5,"cm"), heights = unit(3, "in")) %>%
+          gtable::gtable_add_grob(grid::rectGrob(gp=gpar(fill= analysis.colors[i + 1])), 1, 1, name = 1) %>% 
+          gtable::gtable_add_grob(grid::textGrob(colnames(tab.pval.esca)[i], 
+                                                 rot = 90, 
+                                                 gp = grid::gpar(fontsize = 8)), 1, 1, name = 2)
+        scatter <-  scatter %>% ggpubr::annotate_figure(left = gt)
+      }
+      scatter.list[[paste0(i,j)]] <-  scatter
+      
+    }
+    scatter.grid[[i]] <-  ggpubr::ggarrange(plotlist = scatter.list[grep(paste0("^",i),names(scatter.list))], 
+                                            ncol = top,
+                                            # the first column should be wider since it has the label
+                                            widths = c(1.15,rep(1,top - 1)), 
+                                            nrow = 1, 
+                                            #labels="AUTO", # This will add A B C D etc. to the plot
+                                            common.legend = T,
+                                            legend = "bottom")
+  }     
+}
+ggpubr::ggarrange(plotlist = scatter.grid, 
+                  ncol = 1,
+                  # the first column should be wider since it has the label
+                  widths = c(1.15,rep(1,top - 1)), 
+                  nrow = 2, # Number of analysis
+                  heights = c(rep(1.5,length(scatter.list) - 1), 2), 
+                  #labels="AUTO", # This will add A B C D etc. to the plot
+                  common.legend = F,
+                  legend = "bottom")
+```
+
+# Session information
+```{r}
+sessionInfo()
+```
