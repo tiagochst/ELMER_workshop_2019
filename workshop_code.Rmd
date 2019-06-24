@@ -10,7 +10,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(dpi=300)
+knitr::opts_chunk$set(dpi = 300)
 ```
 
 # Instructor names and contact information
@@ -184,7 +184,7 @@ diff.probes <- get.diff.meth(data = mae,
                              mode = mode,
                              pvalue = 0.01, 
                              sig.dif = 0.3,
-                             dir.out =  , 
+                             dir.out =  dir.out, 
                              save = TRUE)
 # check the results
 head(diff.probes)
@@ -262,6 +262,9 @@ enriched.motif <- get.enriched.motif(data = mae,
                                      label = direction,
                                      min.incidence = 10,
                                      lower.OR = 1.5)
+```
+
+```{r,echo=TRUE}
 # check enriched motifs
 names(enriched.motif)[1:4]
 
@@ -453,7 +456,7 @@ draw(ht_list,
      show_heatmap_legend = TRUE,
      annotation_legend_side = "right")
 
-# Pvalue heatmap
+# P-value heatmap
 ht_list <- Heatmap(as.matrix(-log10(tab.pval)),
                    name = "-log10 (FDR)" ,
                    col = colorRampPalette(c('#3361A5', '#248AF3', '#14B3FF', 
@@ -595,7 +598,6 @@ for (top in c(5)) {
                                             # the first column should be wider since it has the label
                                             widths = c(1.15,rep(1,top - 1)), 
                                             nrow = 1, 
-                                            #labels="AUTO", # This will add A B C D etc. to the plot
                                             common.legend = T,
                                             legend = "bottom")
   }     
@@ -606,7 +608,6 @@ ggpubr::ggarrange(plotlist = scatter.grid,
                   widths = c(1.15,rep(1,top - 1)), 
                   nrow = 2, # Number of analysis
                   heights = c(rep(1.5,length(scatter.list) - 1), 2), 
-                  #labels="AUTO", # This will add A B C D etc. to the plot
                   common.legend = F,
                   legend = "bottom")
 ```
