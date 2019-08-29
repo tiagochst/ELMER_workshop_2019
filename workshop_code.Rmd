@@ -490,8 +490,8 @@ draw(ht_list_binary,
      annotation_legend_side = "right")
 
 # P-value heatmap
-ht_list <- Heatmap(scale(as.matrix(-log10(tab.pval))),
-                   name = "column z-score FDR",
+ht_list <- Heatmap(as.matrix(-log10(tab.pval)),
+                   name = "-log10 (FDR)" ,
                    col = colorRampPalette(c('#3361A5', '#248AF3', '#14B3FF', 
                                             '#88CEEF', '#C1D5DC', '#EAD397', 
                                             '#FDB31A','#E42A2A', '#A31D1D'))(100),
