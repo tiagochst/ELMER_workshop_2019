@@ -8,6 +8,7 @@ output:
     highlight: github
     toc: true
     number_sections: true
+    df_print: paged
 bibliography: tcgabiolinks.bib    
 ---
 
@@ -16,15 +17,6 @@ knitr::opts_chunk$set(dpi = 300)
 ```
 
 
-
-<head>
-    <meta charset="utf-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>TCGAbiolinksGUI</title>
-    <meta name="description" content="TCGAbiolinksGUI.">
-    <!-- Latest compiled JavaScript -->
-    <script src="http://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js"></script>
-</head>
 <style> body {text-align: justify} </style>
 
 
@@ -182,7 +174,7 @@ The following options are used to search mRNA results using TCGAbiolinks:
 
 Here is the example to download the raw counts, which can be used with  (http://bioconductor.org/packages/DESeq2/) for differential expression analysis.
 
-```{R, cache = TRUE, message = FALSE}
+```{R message=FALSE, warning=FALSE, results='hide', fig.keep='all', fig.height = 10, fig.width = 10, cache = TRUE}
 query.exp.hg38 <- GDCquery(project = "TCGA-GBM", 
                   data.category = "Transcriptome Profiling", 
                   data.type = "Gene Expression Quantification", 
@@ -190,12 +182,15 @@ query.exp.hg38 <- GDCquery(project = "TCGA-GBM",
                   barcode =  c("TCGA-14-0736-02A-01R-2005-01", "TCGA-06-0211-02A-02R-2005-01"))
 GDCdownload(query.exp.hg38)
 raw.counts <- GDCprepare(query = query.exp.hg38, summarizedExperiment = FALSE)
+```
+
+```{R}
 head(raw.counts)
 ```
 
 Here is the example to download the FPKM-UQ counts.
 
-```{R, cache = TRUE, message = FALSE}
+```{R message=FALSE, warning=FALSE, results='hide', fig.keep='all', fig.height = 10, fig.width = 10, cache = TRUE}
 query.exp.hg38 <- GDCquery(project = "TCGA-GBM", 
                   data.category = "Transcriptome Profiling", 
                   data.type = "Gene Expression Quantification", 
@@ -203,63 +198,12 @@ query.exp.hg38 <- GDCquery(project = "TCGA-GBM",
                   barcode =  c("TCGA-14-0736-02A-01R-2005-01", "TCGA-06-0211-02A-02R-2005-01"))
 GDCdownload(query.exp.hg38)
 fpkm.uq.counts <- GDCprepare(query = query.exp.hg38, summarizedExperiment = FALSE)
+```
 
+```{R}
 head(fpkm.uq.counts)
 ```
 
-
-```{R, eval = FALSE}
-miRNA
-library(TCGAbiolinks)
-query.mirna <- GDCquery(project = "TARGET-AML", 
-                        experimental.strategy = "miRNA-Seq",
-                        data.category = "Transcriptome Profiling", 
-                        barcode = c("TARGET-20-PATDNN","TARGET-20-PAPUNR"),
-                        data.type = "miRNA Expression Quantification")
-GDCdownload(query.mirna)
-mirna <- GDCprepare(query = query.mirna,
-                     save = TRUE, 
-                     save.filename = "mirna.rda")
-
-
-query.isoform <- GDCquery(project = "TARGET-AML", 
-                          experimental.strategy = "miRNA-Seq",
-                          data.category = "Transcriptome Profiling", 
-                          barcode = c("TARGET-20-PATDNN","TARGET-20-PAPUNR"),
-                          data.type = "Isoform Expression Quantification")
-GDCdownload(query.isoform)
-
-isoform <- GDCprepare(query = query.isoform,
-                    save = TRUE, 
-                    save.filename = "mirna-isoform.rda")
-DNA methylation: aligned against hg38
-#-------------------------------------- 
-# DNA methylation data
-#-------------------------------------- 
-# DNA methylation aligned to hg38
-query_met.hg38 <- GDCquery(project= "TCGA-LGG", 
-                           data.category = "DNA Methylation", 
-                           platform = "Illumina Human Methylation 450", 
-                           barcode = c("TCGA-HT-8111-01A-11D-2399-05","TCGA-HT-A5R5-01A-11D-A28N-05"))
-GDCdownload(query_met.hg38)
-data.hg38 <- GDCprepare(query_met.hg38)
-DNA methylation IDAT
-# Using sesame  http://bioconductor.org/packages/sesame/
-# Please cite 10.1093/nar/gky691 and doi: 10.1093/nar/gkt090.
-library(TCGAbiolinks)
-proj <- "TCGA-ACC"
-query <- GDCquery(project = proj,
-                  data.category = "Raw microarray data",
-                  data.type = "Raw intensities", 
-                  experimental.strategy = "Methylation array", 
-                  legacy = TRUE,
-                  barcode = c("TCGA-OR-A5JT","CGA-OR-A5LG","TCGA-OR-A5JX"),
-                  file.type = ".idat",
-                  platform = "Illumina Human Methylation 450")
-tryCatch(GDCdownload(query, method = "api", files.per.chunk = 20),
-         error = function(e) GDCdownload(query, method = "client"))
-betas <- GDCprepare(query)
-```
 
 
 ## Mutation
@@ -274,7 +218,7 @@ Pipelines options are: `muse`, `varscan2`, `somaticsniper`, `mutect`. For more i
 [GDC docs](https://docs.gdc.cancer.gov/Data/Bioinformatics_Pipelines/DNA_Seq_Variant_Calling_Pipeline/).
 
 
-```{R, eval = FALSE}
+```{R, eval = TRUE, cache = TRUE, message=FALSE, warning=FALSE, results='hide', fig.keep='all', fig.height = 10, fig.width = 10}
 library(maftools)
 library(dplyr)
 library(DT)
@@ -289,7 +233,6 @@ oncoplot(maf = maf, top = 10, removeNonMutated = TRUE)
 titv = titv(maf = maf, plot = FALSE, useSyn = TRUE)
 #plot titv summary
 plotTiTv(res = titv)
-
 ```
 
 ## Copy number alteration data
@@ -304,15 +247,21 @@ Numeric focal-level Copy Number Variation (CNV) values were generated with "Mask
 
 
 You can access "Gene Level Copy Number Scores" from  GISTIC with the code below:
-```{R message=FALSE, warning=FALSE}
+```{R message=FALSE, warning=FALSE, results='hide', fig.keep='all', fig.height = 10, fig.width = 10}
 query <- GDCquery(project = "TCGA-GBM",
              data.category = "Copy Number Variation",
              data.type = "Gene Level Copy Number Scores",              
              access = "open")
 GDCdownload(query)
 scores <- GDCprepare(query)
-scores
+```
 
+```{R warning = FALSE,fig.height = 10, fig.width = 10}
+scores[1:5,1:5]
+```
+
+You can visualize the data using the R/Bioconductor package complexHeatmap. 
+```{R message=FALSE, warning=FALSE, results='hide', fig.keep='all', fig.height = 10, fig.width = 10}
 library(ComplexHeatmap)
 library(dplyr)
 
@@ -328,23 +277,26 @@ loss.more.than.hundred.samples <- which(rowSums(scores.matrix == -1) > 100)
 Heatmap(scores.matrix[c(gain.more.than.hundred.samples,loss.more.than.hundred.samples),],
         show_column_names = FALSE, 
         show_row_names = TRUE,
+         row_names_gp = gpar(fontsize = 8),
         col = circlize::colorRamp2(c(-1,0,1), colors = c("red","white","blue")))
 
 ```
 
-You can access "Masked Copy Number Segment" data with the code below:
-
-```{R}
-query <- GDCquery(project = "TCGA-GBM",
-             data.category = "Copy Number Variation",
-             data.type = "Masked Copy Number Segment",              
-             access = "open")
-GDCdownload(query)
-seg <- GDCprepare(query)
-
-```
 
 ## DNA methylation data
+
+```{R message=FALSE, warning=FALSE, results='hide', fig.keep='all', fig.height = 10, fig.width = 10}
+query_met.hg38 <- GDCquery(project= "TCGA-GBM", 
+                           data.category = "DNA Methylation", 
+                           platform = "Illumina Human Methylation 27", 
+                           barcode = c("TCGA-02-0116-01A","TCGA-14-3477-01A-01D"))
+GDCdownload(query_met.hg38)
+data.hg38 <- GDCprepare(query_met.hg38)
+```
+
+```{R}
+head(data.hg38)
+```
 
 ## ATAC-Seq data
 
@@ -375,5 +327,33 @@ We have a set of recorded videos, explaining some of the workshops.
 * ELMER analysis part2: https://youtu.be/vcJ_DSCt4Mo
 * ELMER summarizing several analysis: https://youtu.be/moLeik7JjLk
 * ATAC-Seq workshop: https://youtu.be/3ftZecz0lU4
+
+
+```{R, eval = FALSE, include = FALSE}
+# miRNA
+library(TCGAbiolinks)
+query.mirna <- GDCquery(project = "TARGET-AML", 
+                        experimental.strategy = "miRNA-Seq",
+                        data.category = "Transcriptome Profiling", 
+                        barcode = c("TARGET-20-PATDNN","TARGET-20-PAPUNR"),
+                        data.type = "miRNA Expression Quantification")
+GDCdownload(query.mirna)
+mirna <- GDCprepare(query = query.mirna,
+                     save = TRUE, 
+                     save.filename = "mirna.rda")
+
+
+query.isoform <- GDCquery(project = "TARGET-AML", 
+                          experimental.strategy = "miRNA-Seq",
+                          data.category = "Transcriptome Profiling", 
+                          barcode = c("TARGET-20-PATDNN","TARGET-20-PAPUNR"),
+                          data.type = "Isoform Expression Quantification")
+GDCdownload(query.isoform)
+
+isoform <- GDCprepare(query = query.isoform,
+                    save = TRUE, 
+                    save.filename = "mirna-isoform.rda")
+```
+
 
 # References
