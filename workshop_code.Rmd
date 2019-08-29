@@ -10,7 +10,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(dpi=300)
+knitr::opts_chunk$set(dpi = 300)
 ```
 
 # Instructor names and contact information
@@ -22,6 +22,14 @@ knitr::opts_chunk$set(dpi=300)
 
 This workshop demonstrates how to perform ELMER analysis using matched RNA-seq
 and DNA methylation data.
+
+You can find a detailed information about ELMER at http://bioconductor.org/packages/3.10/bioc/vignettes/ELMER/inst/doc/index.html.
+
+Articles about ELMER:
+
+* Tiago C Silva, Simon G Coetzee, Nicole Gull, Lijing Yao, Dennis J Hazelett, Houtan Noushmehr, De-Chen Lin, Benjamin P Berman, ELMER v.2: an R/Bioconductor package to reconstruct gene regulatory networks from DNA methylation and transcriptome profiles, Bioinformatics, Volume 35, Issue 11, 1 June 2019, Pages 1974–1977, https://doi.org/10.1093/bioinformatics/bty902
+* Yao, Lijing, et al. "Inferring regulatory element landscapes and transcription factor networks from cancer methylomes." Genome biology 16.1 (2015): 105. https://doi.org/10.1186/s13059-015-0668-3
+* Yao, Lijing, Benjamin P. Berman, and Peggy J. Farnham. "Demystifying the secret mission of enhancers: linking distal regulatory elements to target genes." Critical reviews in biochemistry and molecular biology 50.6 (2015): 550-573. https://doi.org/10.3109/10409238.2015.1087961
 
 ## Pre-requisites
 
@@ -70,7 +78,7 @@ The data is available in this [google drive](https://drive.google.com/drive/fold
 ## Loading the data
 
 ```{r}
-mae <- readRDS("TCGA_ESCA_MAE_distal_regions.rds")
+mae <- readRDS("Data/TCGA_ESCA_MAE_distal_regions.rds")
 mae
 ```
 
@@ -164,9 +172,9 @@ mode <- "supervised"
 
 # Where do we want to save the results ?
 dir.out <- paste0("analysis/",group.col,"-",
-                  gsub("[[:punct:]]| ", ".", group1),
+                  gsub("[[:punct:]]| ", "_", group1),
                   "_vs_",
-                  gsub("[[:punct:]]| ", ".", group2),
+                  gsub("[[:punct:]]| ", "_", group2),
                   "_", mode,
                   "/", direction)
 dir.create(dir.out, showWarnings = FALSE,recursive = T)
@@ -184,7 +192,7 @@ diff.probes <- get.diff.meth(data = mae,
                              mode = mode,
                              pvalue = 0.01, 
                              sig.dif = 0.3,
-                             dir.out =  , 
+                             dir.out =  dir.out, 
                              save = TRUE)
 # check the results
 head(diff.probes)
@@ -262,6 +270,9 @@ enriched.motif <- get.enriched.motif(data = mae,
                                      label = direction,
                                      min.incidence = 10,
                                      lower.OR = 1.5)
+```
+
+```{r,echo=TRUE}
 # check enriched motifs
 names(enriched.motif)[1:4]
 
@@ -271,7 +282,7 @@ enriched.motif$GATA4_HUMAN.H11MO.0.A
 
 
 ```{r}
-motif.result.file <- "analysis/primary_diagnosis-Adenocarcinoma..NOS_vs_Squamous.cell.carcinoma..NOS_supervised/hypo//getMotif.hypo.motif.enrichment.csv"
+motif.result.file <- file.path(dir.out,"getMotif.hypo.motif.enrichment.csv")
 
 motif.enrichment.plot(motif.enrichment = motif.result.file,
                       significant = list(lowerOR = 2.0), 
@@ -324,7 +335,7 @@ ELMER provides an easy way to visualize the rank of all human TF evaluated with 
 function `TF.rank.plot`. 
 
 ```{r,echo=FALSE, results='hide', fig.keep='all', message = FALSE}
-load("analysis/primary_diagnosis-Adenocarcinoma..NOS_vs_Squamous.cell.carcinoma..NOS_supervised/hypo/getTF.hypo.TFs.with.motif.pvalue.rda")
+load(file.path(dir.out,"getTF.hypo.TFs.with.motif.pvalue.rda"))
 motif <-  "GATA4_HUMAN.H11MO.0.A"
 TF.rank.plot(motif.pvalue = TF.meth.cor, 
              motif = motif,
@@ -335,25 +346,21 @@ TF.rank.plot(motif.pvalue = TF.meth.cor,
 
 ## MR TF heatmap 
 
-You can compare MR TF from several analysis plotting them as a heatmap.
-The code below uses the function `ELMER:::get.tabs`, which accepts as input 
-the directories of the results and if you want to select the MR TF within the 
-family of subfamily.
 
+When you perform several ELMER analysis with different arguments, you might want to summarize and visualize those several results. For that, we have the `ELMER:::get.tabs` function , which accepts as input 
+the directories of the results and if you want to select the MR TF within the 
+family of subfamily classification.
+
+In the `Data/analysis_april_2019` folder we provided 4 ELMER analysis. The first step is to retrieve the directory names with the results. Also, it is a golden rule when running several ELMER runs to add a understable name to the `dir.out` directories, such that you easily know which analysis were ran, with which arguments.
+In the example below, you can identify the tumor type, type of ELMER run (supervised/unsupervised), groups compared and direction of the analysis (hypo or hyper in group 1).
 
 In the directory `analysis_april_2019` we provide 4 results from different ELMER runs.
 ```{r}
-analsysis.dir <- unique(dirname(dir("analysis_april_2019/",recursive = T,full.names = T)))
+analsysis.dir <- unique(dirname(dir("Data/analysis_april_2019/",recursive = T,full.names = T)))
 analsysis.dir
 ```
 
-The funtion `get.tabs` will summarize the results in several tables
-
-1. tab: a binary matrix saying if the TF was found or not in the analysis
-2. tab.pval: a matrix  with the MR TF p-value found in the analysis
-3. tab.or: a matrix  with the highest motif OR for the MR TF found in the analysis
-4. tf.or.table: a matrix  with 4 collums: MR TF, motif, FDR and analysis it was identified.
-
+With those directory names we will use the function `ELMER:::get.tabs` to summarize the results.
 ```{r,echo=TRUE,warning=FALSE}
 classification <- "subfamily"
 tabs <- ELMER:::get.tabs(analsysis.dir,classification)
@@ -365,20 +372,38 @@ analysis.names <- c( "COAD-READ (vs Normal)",
                      "EAC (vs ESCC)",
                      "PAAD (vs Normal)")
 for (i in 1:3) colnames(tabs[[i]]) <- analysis.names
+```
 
+This function creates 4 matrices using some of the files in each analysis directory:
+1.  a binary matrix saying if the TF was found or not in the analysis: this function parses each `getTF.hypo.significant.TFs.with.motif.summary.csv` (create after you run the `get.TFs` function) file that has the MR TF for each enriched motif.
 
+```{r,echo=TRUE,warning=FALSE}
 # 1.  a binary matrix saying if the TF was found or not in the analysis
 tab.binary <- tabs$tab
 head(tab.binary)
+```
+
+2. a matrix  with the MR TF p-value found in the analysis: this uses `getTF.hypo.significant.TFs.with.motif.summary.csv` to identify the MR TF and `getTF.hypo.TFs.with.motif.pvalue.rda`, which is a matrix with TF as columns and enriched motifs as rows and the contains the p-value of the wilcoxon test of the TF expression for the Unmethylated vs Methylated groups.
+
+```{r,echo=TRUE,warning=FALSE}
 
 # 2. a matrix  with the MR TF p-value found in the analysis
 tab.pval <- tabs$tab.pval
 head(tab.pval)
+```
+
+3. a matrix  with the highest motif OR for the MR TF found in the analysis: this function uses the file `getTF.hypo.significant.TFs.with.motif.summary.csv`  to get the MR TF and then uses `getMotif.hypo.motif.enrichment.csv` to get the motifs OR to which the MR TF is known to bind and returns the highest OR.
+
+```{r,echo=TRUE,warning=FALSE}
 
 # 3. a matrix  with the highest motif OR for the MR TF found in the analysis
 tab.or <- tabs$tab.or
 head(tab.or)
+```
 
+4. a matrix with 4 collums: MR TF, motif, FDR and analysis it was identified: This function uses the same files as the previous matrices, but returns the results in a different format.
+
+```{r,echo=TRUE,warning=FALSE}
 # 4. a matrix  with 4 collums: MR TF, motif, FDR and analysis it was identified.
 tf.or.table <- tabs$tf.or.table
 
@@ -389,6 +414,15 @@ tf.or.table$analysis <- gsub("ESCA","EAC",paste0(basename(dirname(dirname(dirnam
 head(tf.or.table)
 ```
 
+## Creating Summary plots
+
+With those summarized results we can create two summary plots: 
+
+1. A heatmap with the MR TFs identified in each analysis. 
+2. A scatter plot of the TF expression vs the avg DNA methylation of the TFBS. 
+
+### MR TF heatmap
+The code below creates the heatmap using complexHeatmap package for the binary MR TF matrix and the p-value one.
 
 ```{r, echo = TRUE, warning = FALSE, results = 'hide', fig.keep = 'all', message = FALSE}
 library(ComplexHeatmap)
@@ -417,7 +451,7 @@ hb = HeatmapAnnotation(df = data.frame("Mode" = rep("unsupervised",4),
                        annotation_name_gp = gpar(fontsize = 12))
 
 # Binary heatmap
-ht_list <- Heatmap(as.matrix(tab.binary),
+ht_list_binary <- Heatmap(as.matrix(tab.binary),
                    name = "Binary heatmap" ,
                    col = c("1" = "black", "0" = "white"),
                    column_names_gp = gpar(fontsize = 8),
@@ -430,6 +464,8 @@ ht_list <- Heatmap(as.matrix(tab.binary),
                    show_heatmap_legend = TRUE,
                    cluster_columns = FALSE,
                    cluster_rows = TRUE,
+                   show_column_dend = FALSE,
+                   show_row_dend = FALSE,
                    clustering_distance_rows = function(x) {
                      vegan::vegdist(tab.binary,method = "jaccard",binary = TRUE)
                    },
@@ -441,21 +477,21 @@ ht_list <- Heatmap(as.matrix(tab.binary),
                    column_title_gp = gpar(fontsize = 10), 
                    row_title_gp = gpar(fontsize = 16)) 
 
-ht_list <-  ht_list + 
+ht_list_binary <-  ht_list_binary + 
   rowAnnotation(link = anno_mark(at = match(labels,rownames(tab.pval)), 
                                  labels = labels,labels_gp = gpar(fontsize = 10)),
                 width = unit(1, "cm") + max_text_width(labels)
   ) 
-draw(ht_list,
+draw(ht_list_binary,
      newpage = FALSE, 
      column_title_gp = gpar(fontsize = 12, fontface = "bold"),
-     heatmap_legend_side = "right",
+     heatmap_legend_side = "left",
      show_heatmap_legend = TRUE,
      annotation_legend_side = "right")
 
-# Pvalue heatmap
-ht_list <- Heatmap(as.matrix(-log10(tab.pval)),
-                   name = "-log10 (FDR)" ,
+# P-value heatmap
+ht_list <- Heatmap(scale(as.matrix(-log10(tab.pval))),
+                   name = "column z-score FDR",
                    col = colorRampPalette(c('#3361A5', '#248AF3', '#14B3FF', 
                                             '#88CEEF', '#C1D5DC', '#EAD397', 
                                             '#FDB31A','#E42A2A', '#A31D1D'))(100),
@@ -468,11 +504,8 @@ ht_list <- Heatmap(as.matrix(-log10(tab.pval)),
                    show_row_names = F,
                    show_heatmap_legend = TRUE,
                    cluster_columns = FALSE,
-                   cluster_rows = TRUE,
-                   clustering_distance_rows = function(x) {
-                     vegan::vegdist(tab.binary,method = "jaccard",binary = TRUE)
-                   },
-                   clustering_method_rows = "average",
+                   cluster_rows = FALSE,
+                   row_order = row_order(ht_list_binary),
                    top_annotation = hb,
                    width = unit(5, "cm"),
                    row_names_gp = gpar(fontsize = 1),
@@ -485,32 +518,48 @@ ht_list <-  ht_list +
                                  labels = labels,labels_gp = gpar(fontsize = 10)),
                 width = unit(1, "cm") + max_text_width(labels)
   ) 
+
 draw(ht_list,
      newpage = TRUE,     
      column_title_gp = gpar(fontsize = 12, fontface = "bold"),
-     heatmap_legend_side = "right",
+     heatmap_legend_side = "left",
      show_heatmap_legend = TRUE,
      annotation_legend_side = "right")
 ```
 
 ## MR TF expression vs DNA methylation at binding motifs
 
-Since we only provide one object used for two analysis ("EAC (vs Normal)"  and "EAC (vs ESCC)" )
+The main difference from the last plot is the requirement of the MAE object with the DNA methylation and gene expression data. 
+For a given MR TF, we need to indentify the top enriched motif it binds and then for each enriched motifs its distal paired differently methylated probes using the `getMotif.hypo.enriched.motifs.rda` object within the results folder.
+
+Also, since we only provide one object used for two analysis ("EAC (vs Normal)"  and "EAC (vs ESCC)" )
 we will only plot the  MR TF expression vs DNA methylation at binding motifs
 for them.
 
+
 ```{r,echo=TRUE, results='hide', fig.keep='all', message = FALSE,fig.height=8,fig.width=15,warning=FALSE}
-analsysis.dir.esca <- unique(dirname(dir("analysis_april_2019/ESCA/",recursive = T,full.names = T)))
-mae <- readRDS("TCGA_ESCA_MAE_distal_regions.rds")
+analsysis.dir.esca <- unique(dirname(dir("Data/analysis_april_2019/ESCA/",recursive = T,full.names = T)))
+mae <- readRDS("Data/TCGA_ESCA_MAE_distal_regions.rds")
 
 tab.pval.esca <- tab.pval[,2:3]
 
+suppressMessages({
 library(ELMER)
 library(grid)
 library(ggplot2)
 library(ggpubr)
 library(dplyr)
+})
 
+
+analysis.colors <- c(
+  "COAD-READ (vs Normal)" = '#ff964f',
+  "EAC (vs Normal)" = '#94e894',
+  "EAC (vs ESCC)" = '#eaadb9',
+  "PAAD (vs Normal)" = '#9ab9f9'                   
+)
+
+# Top has the number of MRTF to plot
 for (top in c(5)) {
   
   scatter.list <- list()
@@ -518,7 +567,7 @@ for (top in c(5)) {
   scatter.labels <- c()
   
   for (path in analsysis.dir.esca) {
-    # Load of object with enriched motifs
+    # Load of object with enriched motifs and the probes mapped to it
     load(dir(path = path, 
              pattern = "getMotif.hypo.enriched.motifs.rda",
              recursive = T,full.names = T)    
@@ -527,6 +576,8 @@ for (top in c(5)) {
     
     tumor <- basename(dirname(dirname(dirname(path))))
     mae.plot <- mae
+      
+     # Change the data to plot based on the analysis performed  
     if (grepl("Squamous",path)) {
       category <- "primary_diagnosis"
       # keep only samples used in the analysis
@@ -550,11 +601,15 @@ for (top in c(5)) {
       motif <- tf.or.table[tf.or.table$TF == j & 
                              tf.or.table$analysis == colnames(tab.pval.esca)[i],"motif"][1]
       
+      # Change the dots color based on the analysis performed  
       if (grepl("Squamous",path))   color.value <- c("#FF0000","#0000FF")
       if (grepl("Adenocarcinoma.Solid.Tissue.Normal",path)) color.value <- c("#FF0000","#176d55")
       
       if (is.na(motif)) next
-      scatter <- scatter.plot(data = mae.plot,
+        
+        # Plot TF expression vs avg DNA methylation of the TFBS
+        suppressMessages({
+          scatter <- scatter.plot(data = mae.plot,
                               correlation = TRUE,
                               byTF = list(TF = TF,
                                           probe = enriched.motif[[motif]]), 
@@ -564,11 +619,11 @@ for (top in c(5)) {
                               color.value = color.value,
                               save = FALSE, 
                               lm_line = TRUE) +
-        ylab(bquote(.(TF) ~ log[2](RSEM + 1))) + 
-        xlab(paste0("Avg. DNA met. at \n", length(enriched.motif[[motif]]),
+            ylab(bquote(.(TF) ~ log[2](RSEM + 1))) + 
+            xlab(paste0("Avg. DNA met. at \n", length(enriched.motif[[motif]]),
                     " CpGs w/ \n enriched motif ",
-                    sub("_HUMAN.H11MO.[0-1].[A-D]", "",  motif))
-        ) + theme(legend.position = "none", 
+                    sub("_HUMAN.H11MO.[0-1].[A-D]", "",  motif))) + 
+            theme(legend.position = "none", 
                   plot.title = element_blank(),
                   axis.title.y = element_text(size = 8, face = "bold"),
                   axis.title.x = element_text(size = 8, face = "bold"),
@@ -578,7 +633,9 @@ for (top in c(5)) {
                   # Remove panel background
                   panel.background = element_blank()
         )
+      })
       
+      # If this is the first plot of the analysis we will add a labels (rectangle + text)  
       if(j == topTFs[1]){
         gt <- gtable::gtable(widths = unit(0.5,"cm"), heights = unit(3, "in")) %>%
           gtable::gtable_add_grob(grid::rectGrob(gp=gpar(fill= analysis.colors[i + 1])), 1, 1, name = 1) %>% 
@@ -595,23 +652,76 @@ for (top in c(5)) {
                                             # the first column should be wider since it has the label
                                             widths = c(1.15,rep(1,top - 1)), 
                                             nrow = 1, 
-                                            #labels="AUTO", # This will add A B C D etc. to the plot
                                             common.legend = T,
                                             legend = "bottom")
   }     
 }
+options(repr.plot.width=20, repr.plot.height=8)
+
+# we use ggarrange to arrange the plots together
 ggpubr::ggarrange(plotlist = scatter.grid, 
                   ncol = 1,
                   # the first column should be wider since it has the label
                   widths = c(1.15,rep(1,top - 1)), 
-                  nrow = 2, # Number of analysis
+                  nrow = 2, # Number of analysis - rows of the plot
                   heights = c(rep(1.5,length(scatter.list) - 1), 2), 
-                  #labels="AUTO", # This will add A B C D etc. to the plot
                   common.legend = F,
                   legend = "bottom")
+```
+
+# Code to create the data used in the workshop
+
+The function `getTCGA` uses TCGAbiolinks to retrieve TCGA data in ELMER accept format.
+
+
+```{r, eval=FALSE}
+genome <- "hg38"
+
+# Get RNA-seq and DNA methylation from GDC using TCGAbiolinks
+# Data will be saved in Data folder by default
+getTCGA(disease = "ESCA", genome = genome, Meth = TRUE,RNA = TRUE)
+
+# We will keep only the distal probes
+distal.probes <- get.feature.probe(feature = NULL,
+                                   genome = genome,
+                                   met.platform = "450K") 
+
+mae <- createMAE(exp = paste0("Data/",tumor,"/",tumor,"_RNA_hg38_no_filter.rda"), 
+                   met = paste0("Data/",tumor,"/",tumor,"_Meth_hg38_no_filter.rda"), 
+                   met.platform = "450K",
+                   genome = "hg38",
+                   linearize.exp = TRUE,
+                   filter.probes = distal.probes,
+                   save = FALSE,
+                   TCGA = TRUE) 
+mae$group <- paste0(mae$name,"-",mae$definition)
+mae <- mae[,!mae$is_ffpe] # remove FFPE samples from analysis
+saveRDS(object = mae, file = "TCGA_ESCA_MAE_distal_regions.rds")
 ```
 
 # Session information
 ```{r}
 sessionInfo()
 ```
+
+# Workshop materials
+
+## Workshops HTMLs
+
+* ELMER data Workshop HTML: http://rpubs.com/tiagochst/elmer-data-workshop-2019
+* ELMER analysis Workshop HTML: http://rpubs.com/tiagochst/ELMER_workshop
+* ATAC-seq Workshop HTML: http://rpubs.com/tiagochst/atac_seq_workshop
+
+
+## Workshop videos
+
+We have a set of recorded videos, explaining some of the workshops.
+
+* All videos playlist: https://www.youtube.com/playlist?list=PLoDzAKMJh15kNpCSIxpSuZgksZbJNfmMt
+* ELMER algorithm: https://youtu.be/PzC31K9vfu0
+* ELMER data: https://youtu.be/R00wG--tGo8
+* ELMER analysis part1 : https://youtu.be/bcd4uyxrZCw
+* ELMER analysis part2: https://youtu.be/vcJ_DSCt4Mo
+* ELMER summarizing several analysis: https://youtu.be/moLeik7JjLk
+* ATAC-Seq workshop: https://youtu.be/3ftZecz0lU4
+

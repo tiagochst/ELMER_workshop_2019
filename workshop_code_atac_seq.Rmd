@@ -1,0 +1,723 @@
+---
+title: "Workshop for ATAC-seq analysis"
+author: "Benjamin P. Berman, Tiago C. Silva"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+    toc: true
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(dpi = 300)
+```
+
+```{r,include=FALSE}
+load("~/Desktop/ELMER_workshop/t_test_atac_seq_results_eac_vs_escc.rda")
+```
+
+
+# Workshop Description
+
+This workshop demonstrates how users can use GDC ATAC-seq data in their analysis.
+
+For more information about the data please visit GDC publication
+website (https://gdc.cancer.gov/about-data/publications/ATACseq-AWG) and read the paper: 
+
+* CORCES, M. Ryan, et al. The chromatin accessibility landscape of primary human cancers. Science, 2018, vol. 362, no 6413, p. eaav1898. https://doi.org/10.1126/science.aav1898
+
+
+## Pre-requisites
+
+* Basic knowledge of R syntax
+
+## Workshop Participation
+
+Students will have a chance to download ATAC-seq cancer-specific peaks from GDC and import to R. 
+After, esophageal adenocarcinoma (ESAD) vs esophageal squamous cell carcinoma (ESCC) analysis is performed and
+the results as visualized as a volcano plot and a heatmap.
+
+## Goals and objectives
+
+* Download and understand the ATAC-seq data
+* Compare two different groups of samples ATAC-seq data
+
+# Data from the workshop
+
+You can find the t.test result and the ESCA ATAC-seq Summarized Experiment object
+at [google drive](https://drive.google.com/drive/folders/1u9YI7E-e-xWPlJOXmzE14tCe7oCSR91W?usp=sharing).
+They are used to plot the heatmap and the volcano plot.
+But if you follow the initial sections you should be able to create them.
+
+# Loading required R libraries
+
+The libraries below are used in the workshop. 
+
+
+```{r, message=FALSE}
+setwd("~/Desktop/ELMER_workshop/")
+
+# to read txt files
+library(readr)
+
+# to transform data into GenomicRanges
+library(GenomicRanges)
+
+# other ones used to prepare the data
+library(tidyr)
+library(dplyr)
+library(SummarizedExperiment)
+
+# For the t.test loop
+library(plyr)
+
+# For easy volcano plot
+library(TCGAbiolinks)
+
+# For heatmap plot
+library(ComplexHeatmap)
+library(circlize)
+```
+
+If one of them  are not installed you can install them with `BiocManager` as shown below.
+
+```{r,eval=FALSE}
+if (!requireNamespace("BiocManager", quietly=TRUE))
+  install.packages("BiocManager")
+BiocManager::install("readr")
+```
+
+# Data
+
+The ATAC-seq data used in this workshop is available at https://gdc.cancer.gov/about-data/publications/ATACseq-AWG
+
+## Understanding the peaks sets
+
+There are mainly two types of ATAC-seq Counts Matrices raw and normalized which covers mainly
+two sets of peaks:
+
+1. "cancer type-specific peak set" containing all of the reproducible peaks observed in an individual cancer type. These peaks 
+were observed in at least two samples with a score per million value $>=5$
+2. "pan-cancer peak set" representing reproducible peaks from all cancer types that could then be used for cross-cancer comparisons
+
+
+If we check the both sets (Files downloaded from GDC: **"All cancer type-specific peak sets. [ZIP]"** and **"Pan-cancer peak set. [TXT]"**),
+the set of peaks "pan-cancer peak set" consists of $~562K$ peaks, and it contains a
+subset of each "cancer type-specific peak set". We show an example for Esophageal carcinoma (ESCA) below.
+
+
+```{r, message=FALSE}
+# ESCA specific peaks set
+atac_esca <- readr::read_tsv("ATAC-seq_data/TCGA-ATAC_Cancer_Type-specific_PeakCalls/ESCA_peakCalls.txt")
+head(atac_esca)
+```
+
+```{r, message=TRUE}
+message("Number of peaks: ",nrow(atac_esca))
+```
+
+```{r, message=FALSE}
+# pan-cancer peak set
+atac_pan <- readr::read_tsv("ATAC-seq_data/TCGA-ATAC_PanCancer_PeakSet.txt")
+head(atac_pan)
+
+# from the  pancan set how many belongs to each cancer type?
+table(stringr::str_split(atac_pan$name,"_",simplify = T)[,1])
+
+table(atac_esca$name %in% atac_pan$name)
+
+table(grep("ESCA",atac_pan$name,value = T) %in% atac_esca$name)
+```
+
+
+However, it is important to highlight that the "pan-cancer peak set" will keep the most significant peaks (hihghest score)
+for the overlapping peaks. Which means that the name in the "pan-cancer peak set" consists of the one
+with highest score. If we check the regions overlap of the ESCA peaks, we can see that the majority
+of the peaks are still within the PAN-can, but they are higher in another subtype
+
+```{r, message = FALSE}
+atac_esca.gr <- makeGRangesFromDataFrame(atac_esca,keep.extra.columns = T)
+atac_pan.gr <- makeGRangesFromDataFrame(atac_pan,keep.extra.columns = T)
+length(subsetByOverlaps(atac_esca.gr,atac_pan.gr))
+```
+
+
+So let's check an overlaping peak. The "ESCA_17603" peak is not within the pancan set of peaks,
+because it overlaps the "ACC_10008" peak, which has a higher score.
+
+
+```{r, message=FALSE}
+"ESCA_17603" %in% atac_pan.gr$name
+
+subsetByOverlaps(atac_pan.gr[atac_pan.gr$name == "ACC_10008"],atac_esca.gr)
+subsetByOverlaps(atac_esca.gr,atac_pan.gr[atac_pan.gr$name == "ACC_10008"])
+```
+
+
+Also it is important to note that the peaks size is the same.
+
+```{r, message=FALSE}
+unique(width(atac_pan.gr))
+unique(width(atac_esca.gr))
+```
+
+In summary, in the pan-can set the ESCA peaks will be the ones that are the strongest 
+when compared to the other cancer types. These are a subset of all ESCA peaks.
+So, if you are looking for all ATAC-seq ESCA peaks identified in at least two samples
+the cancer-specific set should be used. 
+
+# Using ATAC-seq counts to compare two groups
+
+Through the next section we will load the normalized counts data and compare two groups
+of samples, to identify which peaks are stronger in a given group compared to the other one.
+
+The main two files used in this section are:
+
+1. Normalized ATAC-seq insertion counts within the pan-cancer peak set. Recommended format. [RDS]
+2. All cancer type-specific count matrices in normalized counts. [ZIP]
+
+In the code below we are showing the beginning of the objects. It is important to highlight
+that the samples are using Stanford UUID instead of TCGA barcodes and each patient
+has two samples.
+
+```{r,message=FALSE}
+atac_esca_norm_ct <- readr::read_tsv("ATAC-seq_data/TCGA-ATAC_Cancer_Type-specific_Count_Matrices_log2norm_counts/ESCA_log2norm.txt")
+```
+
+```{r}
+atac_esca_norm_ct[1:4,1:8]
+```
+
+We will change the samples names to TCGA barcodes using the file **"Lookup table for various TCGA sample identifiers. [TXT]"**
+from GDC.
+
+```{r, eval=TRUE}
+file.samples.ids <- "TCGA_identifier_mapping.txt"
+if(!file.exists(file.samples.ids)) downloader::download("https://api.gdc.cancer.gov/data/7a3d7067-09d6-4acf-82c8-a1a81febf72c",file.samples.ids)
+samples.ids <- readr::read_tsv(file.samples.ids)
+samples.ids$sample <- substr(samples.ids$Case_ID,1,16)
+head(samples.ids)
+colnames(atac_esca_norm_ct)[-c(1:5)] <- samples.ids$Case_ID[match(gsub("_","-",colnames(atac_esca_norm_ct)[-c(1:5)]),samples.ids$bam_prefix)]
+atac_esca_norm_ct[1:4,1:8]
+```
+
+
+
+
+```{r, eval=FALSE}
+atac <- atac_esca_norm_ct
+non.cts.idx <- 1:5
+samples.info <- TCGAbiolinks:::colDataPrepare(unique(colnames(atac)[-c(non.cts.idx)]))
+
+samples.map <- gsub(",| |NOS","",gsub("Adenocarcinoma","ESAD",gsub("Squamous cell carcinoma","ESCC",paste0(samples.info$primary_diagnosis,"-",samples.info$sample))))
+colnames(atac)[-c(non.cts.idx)] <- samples.map[match(substr(colnames(atac)[-c(non.cts.idx)],1,16),substr(samples.map,6,21))]
+
+# create SE object  
+counts <- atac[,-c(1:5)]
+rowRanges <- makeGRangesFromDataFrame(atac)
+rowRanges$score <- atac$score
+rowRanges$name <- atac$name
+names(rowRanges) <- paste(atac$name,atac$seqnames,atac$start,atac$end, sep = "_")
+colData <- DataFrame(unique(left_join(samples.info,samples.ids)))
+esca.rse <- SummarizedExperiment(assays=SimpleList(log2norm=as.matrix(counts)),
+                                 rowRanges = rowRanges, 
+                                 colData = colData)
+
+# Since we have two samples for each patient we will rename tham as rep1 and rep2
+duplicated.idx <- duplicated(colnames(esca.rse))
+colnames(esca.rse)[!duplicated.idx] <- paste0(colnames(esca.rse)[!duplicated.idx],"_rep1")
+colnames(esca.rse)[duplicated.idx] <- paste0(colnames(esca.rse)[duplicated.idx],"_rep2")
+```
+
+```{r}
+esca.rse
+colnames(esca.rse)
+```
+
+## Comparing ESCC vs ESAD ATAC-seq
+
+We will use a t-test to identify the peaks that have a siginificant different mean counts 
+between the ESCC and ESAD samples.
+
+```{r, eval=FALSE}
+escc.idx <- which(esca.rse$primary_diagnosis == "Squamous cell carcinoma, NOS")
+esad.idx <- which(esca.rse$primary_diagnosis == "Adenocarcinoma, NOS")
+
+result <- plyr::adply(assay(esca.rse),.margins = 1,.fun = function(peak){
+  results <- t.test(peak[escc.idx],peak[esad.idx],conf.level = TRUE)
+  return(tibble::tibble("raw_p_value"= results$p.value,
+                        "ESCC_minus_ESAD" = results$estimate[1] - results$estimate[2]))
+}, .progress = "time", .id = "peak")
+
+result$FDR <- stats::p.adjust(result$raw_p_value,method = "fdr")
+```
+
+## Volcano plot of t-test analysis
+
+We can plot the results to visualize the results and select a good cut-off.
+
+
+```{r}
+fdr.cut.off <- 0.01
+diff.cut.off <- 2
+
+TCGAbiolinks:::TCGAVisualize_volcano(x = result$ESCC_minus_ESAD,
+                                     y = result$FDR, 
+                                     title =  paste0("Volcano plot - ATAC-seq peaks ",
+                                                     "difference in ", 
+                                                     "ESCC vs ESAD\n"),
+                                     filename = NULL,
+                                     label =  c("Not Significant",
+                                                paste0("High in ESCC (vs ESAD)"),
+                                                paste0("Low in ESCC (vs ESAD)")),
+                                     ylab =  expression(paste(-Log[10],
+                                                              " (FDR) [two tailed t-test] - cut-off FDR < ",fdr.cut.off
+                                     )),
+                                     xlab =  expression(paste(
+                                       "Log2(Counts) difference - cut-off log2 delta(cts) > ",diff.cut.off
+                                     )),
+                                     x.cut = diff.cut.off, 
+                                     y.cut = fdr.cut.off)
+
+# How many peaks pass our cut-offs
+table(result$FDR < fdr.cut.off & abs(result$ESCC_minus_ESAD) > diff.cut.off)
+```
+
+
+## Heatmap of differential significant peaks
+
+First we will load the libraires used to plot the heatmap
+```{r, message = FALSE}
+library(ComplexHeatmap)
+library(circlize)
+```
+
+```{r,fig.width = 10,fig.height = 6}
+# colors of the atac-seq data
+pal_atac <- colorRampPalette(c('#3361A5',
+                               '#248AF3',
+                               '#14B3FF',
+                               '#88CEEF',
+                               '#C1D5DC',
+                               '#EAD397',
+                               '#FDB31A',
+                               '#E42A2A',
+                               '#A31D1D'))(100)
+
+# Samples annotation
+ha = HeatmapAnnotation(df = data.frame("Group" = esca.rse$primary_diagnosis, 
+                                       "Replicate" = stringr::str_match(colnames(esca.rse),"rep[0-9]?")),
+                       show_annotation_name = T,
+                       col = list(Group = c("Squamous cell carcinoma, NOS" =  "red", 
+                                            "Adenocarcinoma, NOS" = "blue")),
+                       show_legend = T,
+                       annotation_name_side = "left",
+                       annotation_name_gp = gpar(fontsize = 6))
+
+plot.atac <- assay(esca.rse)[result$FDR < fdr.cut.off & abs(result$ESCC_minus_ESAD) > diff.cut.off,]
+col <- colorRamp2(seq(min(plot.atac), max(plot.atac), 
+                      by = (max(plot.atac) - min(plot.atac))/99), pal_atac)
+
+rows.annot <- rowAnnotation(foo = anno_mark(at = c(1,18), labels = rownames(plot.atac)[c(1,18)]))
+
+
+ht_list <- 
+  Heatmap(plot.atac,
+          name = "ATAC-seq log2(counts)", 
+          col = col,
+          column_names_gp = gpar(fontsize = 8),
+          show_column_names = F,
+          heatmap_legend_param = list(legend_direction = "horizontal",
+                                      labels_gp = gpar(fontsize = 12), 
+                                      title_gp = gpar(fontsize = 12)),
+          show_row_names = FALSE,
+          cluster_columns = TRUE,
+          use_raster = TRUE,
+          raster_device = c("png"),
+          raster_quality = 2,
+          cluster_rows = T,
+          right_annotation = rows.annot,
+          row_title = paste0(sum(result$FDR < fdr.cut.off & 
+                                   abs(result$ESCC_minus_ESAD) > diff.cut.off),
+                             " ATAC-seq peaks"),
+          #column_order = cols.order,
+          row_names_gp = gpar(fontsize = 4),
+          top_annotation = ha,
+          #width = unit(15, "cm"),
+          #column_title = paste0("RNA-seq z-score (n = ", ncol(plot.exp),")"), 
+          column_title_gp = gpar(fontsize = 12), 
+          row_title_gp = gpar(fontsize = 12)) 
+
+draw(ht_list,newpage = TRUE, 
+     column_title = paste0("ATAC-seq ESCC vs ESAD (FDR < ", fdr.cut.off,
+                           ",  Diff mean log2 Count > ",diff.cut.off,")"),
+     column_title_gp = gpar(fontsize = 12, fontface = "bold"),
+     heatmap_legend_side = "bottom",
+     annotation_legend_side = "right")
+```
+
+
+## Heatmap of differential significant peaks (z-score)
+
+A better way to visualize a heatmap is using the z-score transformation on the rows.
+Z-scores are centered and normalized, so the user can interpret a color as x 
+standard deviations from the mean and have an intuitive idea of the relative variation of that value.
+This will make the visibility of the heatmap better since it will reduce the range of the values
+plots. For more information, please read the discussion [here](https://stats.stackexchange.com/questions/36076/is-a-heat-map-of-gene-expression-more-informative-if-z-scores-are-used-instead-o)
+
+
+In R the function `scale` can be used, since it works by column we have to transpose the matrix so 
+it is applied to the peaks instead of the samples and then transpose it back.
+
+```{r,fig.width = 14,fig.height = 8}
+plot.atac.row.z.score <- t(scale(t(plot.atac))) # row z-score
+col.zscore <- colorRamp2(seq(-2, 2, by = 4/99), pal_atac)
+
+ht_list <- 
+  Heatmap(plot.atac.row.z.score,
+          name = "Row z-score (ATAC-seq log2(counts))", 
+          col = col.zscore,
+          column_names_gp = gpar(fontsize = 8),
+          show_column_names = F,
+          heatmap_legend_param = list(legend_direction = "horizontal",
+                                      labels_gp = gpar(fontsize = 12), 
+                                      title_gp = gpar(fontsize = 12)),
+          show_row_names = FALSE,
+          cluster_columns = TRUE,
+          use_raster = TRUE,
+          right_annotation = rows.annot,
+          raster_device = c("png"),
+          raster_quality = 2,
+          cluster_rows = T,
+          row_title = paste0(sum(result$FDR < fdr.cut.off & abs(result$ESCC_minus_ESAD) > diff.cut.off),
+                             " ATAC-seq peaks"),
+          #column_order = cols.order,
+          row_names_gp = gpar(fontsize = 4),
+          top_annotation = ha,
+          #width = unit(15, "cm"),
+          #column_title = paste0("RNA-seq z-score (n = ", ncol(plot.exp),")"), 
+          column_title_gp = gpar(fontsize = 12), 
+          row_title_gp = gpar(fontsize = 12)) 
+
+draw(ht_list,newpage = TRUE, 
+     column_title = paste0("ATAC-seq ESCC vs ESAD (FDR < ", 
+                           fdr.cut.off,",  Diff mean log2 Count > ",
+                           diff.cut.off,")"),
+     column_title_gp = gpar(fontsize = 12, fontface = "bold"),
+     heatmap_legend_side = "bottom",
+     annotation_legend_side = "right")
+
+
+```
+
+## Merging ATAC-seq replicates 
+
+If you want to instead of plot all replicates, to plot a single value
+for each patient you can get the mean of the values.
+
+```{r,fig.width = 14,fig.height = 8}
+groupMeans <- function(mat, groups = NULL, na.rm = TRUE){
+  stopifnot(!is.null(groups))
+  gm <- lapply(unique(groups), function(x){
+    rowMeans(mat[,which(groups == x),drop = F], na.rm=na.rm)
+  }) %>% Reduce("cbind",.)
+  colnames(gm) <- unique(groups)
+  return(gm)
+}
+matMerged <- groupMeans(mat = assays(esca.rse)$log2norm, groups = colData(esca.rse)$sample)
+
+# keep only metadata fro replicate 1
+metadata <- colData(esca.rse)[grep("rep1",rownames(colData(esca.rse))),]
+
+
+ha = HeatmapAnnotation(df = data.frame("Group" = metadata$primary_diagnosis),
+                       show_annotation_name = T,
+                       col = list(Group = c("Squamous cell carcinoma, NOS" =  "red", 
+                                            "Adenocarcinoma, NOS" = "blue")),
+                       show_legend = T,
+                       annotation_name_side = "left",
+                       annotation_name_gp = gpar(fontsize = 6))
+
+plot.atac <- matMerged[result$FDR < fdr.cut.off & abs(result$ESCC_minus_ESAD) > diff.cut.off,]
+col <- colorRamp2(seq(min(plot.atac), max(plot.atac), 
+                      by = (max(plot.atac) - min(plot.atac))/99), pal_atac)
+
+
+
+ht_list <- 
+  Heatmap(plot.atac,
+          name ="ATAC-seq log2(counts)", 
+          col = col,
+          column_names_gp = gpar(fontsize = 8),
+          show_column_names = F,
+          heatmap_legend_param = list(legend_direction = "horizontal",
+                                      labels_gp = gpar(fontsize = 12), 
+                                      title_gp = gpar(fontsize = 12)),
+          show_row_names = FALSE,
+          cluster_columns = TRUE,
+          use_raster = TRUE,
+          raster_device = c("png"),
+          raster_quality = 2,
+          cluster_rows = T,
+          right_annotation = rows.annot,
+          row_title = paste0(sum(result$FDR < fdr.cut.off & abs(result$ESCC_minus_ESAD) > diff.cut.off),
+                             " ATAC-seq peaks"),
+          #column_order = cols.order,
+          row_names_gp = gpar(fontsize = 4),
+          top_annotation = ha,
+          #width = unit(15, "cm"),
+          #column_title = paste0("RNA-seq z-score (n = ", ncol(plot.exp),")"), 
+          column_title_gp = gpar(fontsize = 12), 
+          row_title_gp = gpar(fontsize = 12)) 
+
+draw(ht_list,newpage = TRUE, 
+     column_title = paste0("ATAC-seq ESCC vs ESAD (FDR < ", fdr.cut.off,",  
+                           Diff mean log2 Count > ",diff.cut.off,")"),
+     column_title_gp = gpar(fontsize = 12, fontface = "bold"),
+     heatmap_legend_side = "bottom",
+     annotation_legend_side = "right")
+
+plot.atac.row.z.score <- t(scale(t(plot.atac))) # row z-score
+col.zscore <- colorRamp2(seq(-2, 2, by = 4/99), pal_atac)
+
+ht_list <- 
+  Heatmap(plot.atac.row.z.score,
+          name = "Row z-score (ATAC-seq log2(counts))", 
+          col = col.zscore,
+          column_names_gp = gpar(fontsize = 8),
+          show_column_names = F,
+          heatmap_legend_param = list(legend_direction = "horizontal",
+                                      labels_gp = gpar(fontsize = 12), 
+                                      title_gp = gpar(fontsize = 12)),
+          show_row_names = FALSE,
+          cluster_columns = TRUE,
+          use_raster = TRUE,
+          right_annotation = rows.annot,
+          raster_device = c("png"),
+          raster_quality = 2,
+          cluster_rows = T,
+          row_title = paste0(sum(result$FDR < fdr.cut.off & 
+                                   abs(result$ESCC_minus_ESAD) > diff.cut.off),
+                             " ATAC-seq peaks"),
+          #column_order = cols.order,
+          row_names_gp = gpar(fontsize = 4),
+          top_annotation = ha,
+          #width = unit(15, "cm"),
+          #column_title = paste0("RNA-seq z-score (n = ", ncol(plot.exp),")"), 
+          column_title_gp = gpar(fontsize = 12), 
+          row_title_gp = gpar(fontsize = 12)) 
+
+draw(ht_list,newpage = TRUE, 
+     column_title = paste0("ATAC-seq ESCC vs ESAD (FDR < ", fdr.cut.off,
+                           ",  Diff mean log2 Count > ",diff.cut.off,")"),
+     column_title_gp = gpar(fontsize = 12, fontface = "bold"),
+     heatmap_legend_side = "bottom",
+     annotation_legend_side = "right")
+```
+
+
+# Other useful codes
+
+## Get all TCGA cancer-specific peaks peaks
+
+The code below will download all cancer specific peaks and transform them into
+an R object.
+
+```{r, eval=FALSE}
+library(readr)
+library(GenomicRanges)
+library(tidyr)
+library(dplyr)
+library(SummarizedExperiment)
+library(plyr)
+#-------------------------------
+# Cancer specific peaks as SummaerizedExperiment object
+#-------------------------------
+
+zip.file <- "export.zip"
+if(!file.exists(zip.file)) { 
+  download("https://api.gdc.cancer.gov/data/38b8f311-f3a4-4746-9829-b8e3edb9c157",zip.file)
+  unzip(zip.file)
+}
+prepareCancerSpecificPeaks <- function(file){
+  output <- gsub(".txt",".rda",file)
+  if(file.exists(output)) return()
+  atac  <- readr::read_tsv(file)
+  
+  file.samples.ids <- "TCGA_identifier_mapping.txt"
+  if(!file.exists(file.samples.ids)) downloader::download("https://api.gdc.cancer.gov/data/7a3d7067-09d6-4acf-82c8-a1a81febf72c",file.samples.ids)
+  samples.ids <- readr::read_tsv(file.samples.ids)
+  samples.ids$sample <- substr(samples.ids$Case_ID,1,16)
+  colnames(atac)[-c(1:5)] <- samples.ids$Case_ID[match(gsub("_","-",colnames(atac)[-c(1:5)]),samples.ids$bam_prefix)]
+  
+  samples.info <- TCGAbiolinks:::colDataPrepare(unique(colnames(atac)[-c(1:5)]))
+  
+  if(grepl("ESCA",file)){
+    samples.map <- gsub(",| |NOS","",gsub("Adenocarcinoma","ESAD",gsub("Squamous cell carcinoma","ESCC",paste0(samples.info$primary_diagnosis,"-",samples.info$sample))))
+    colnames(atac)[-c(1:5)] <- samples.map[match(substr(colnames(atac)[-c(1:5)],1,16),substr(samples.map,6,21))]
+  } else {
+    colnames(atac)[-c(1:5)] <- samples.info$sample[match(substr(colnames(atac)[-c(1:5)],1,16),samples.info$sample)]
+  }
+  
+  # create SE object  
+  counts <- atac[,-c(1:5)]
+  rowRanges <- makeGRangesFromDataFrame(atac)
+  rowRanges$score <- atac$score
+  rowRanges$name <- atac$name
+  names(rowRanges) <- paste(atac$name,atac$seqnames,atac$start,atac$end, sep = "_")
+  colData <- DataFrame(unique(left_join(samples.info,samples.ids)))
+  rse <- SummarizedExperiment(assays=SimpleList(log2norm=as.matrix(counts)),
+                              rowRanges = rowRanges, 
+                              colData = colData)
+  save(rse,file = output, compress = "xz")
+}
+
+plyr::a_ply(dir(pattern=".txt"),1, function(f) 
+  tryCatch({prepareCancerSpecificPeaks(f)}, error = function(e){message(e)}),
+  .progress = "time")
+```
+
+
+## ATAC-seq Bigwig
+
+The ATAC-seq bigwig files available at https://gdc.cancer.gov/about-data/publications/ATACseq-AWG 
+
+
+Here are some information about the bigwig files.
+
+> All bigWig files for each cancer type are compressed using tar and gzip. As such, each of the .tgz files contains all of the individual bigWig files for each technical replicate.
+
+> We recommend extracting the files using the following command:
+tar -zxvf file_name.tgz --strip-components 8
+where the "--strip-components 8" extracts the files without copying their original directory structure
+
+>The provided bigWig files have been normalized by the total insertions in peaks and then binned into 100-bp bins. Each 100-bp bin represents the normalized number of insertions that occurred within the corresponding 100 bp.
+
+The bigwig names also use Stanford UUIDs. The script below will help reanaming the bigwifiles with TCGA barcodes.
+First we get the path to the downloaded bigwig files after uncompressing them and 
+read the information file from the ATAC-seq website.
+
+```{r,cache=TRUE}
+bigwig.files <- dir(path = "ATAC-seq_data/ESCA_bigWigs/",
+                    pattern = ".bw",
+                    all.files = T,
+                    full.names = T)
+bigwig.files
+
+table <- readr::read_tsv("https://api.gdc.cancer.gov/data/7a3d7067-09d6-4acf-82c8-a1a81febf72c")
+head(table)
+```
+
+Then, for each file we will map then in the downloaded table and rename them.
+```{r,cache=TRUE}
+# rename bigwig files add more info in the nanem
+plyr::a_ply(bigwig.files,1, function(file) {
+  
+  file.uuid <- stringr::str_extract(file,
+  "[:alnum:]{8}_[:alnum:]{4}_[:alnum:]{4}_[:alnum:]{4}_[:alnum:]{12}")
+  
+  idx <- grep(file.uuid,gsub("-","_",table$stanfordUUID))
+  
+  barcode <- unique(table[idx,]$Case_ID)
+  # change UUID to barcode
+  to <- gsub(file.uuid,barcode,file)
+  file.rename(file, to)
+})
+```
+
+```{r,cache=TRUE}
+bigwig.files <- dir(path = "ATAC-seq_data/ESCA_bigWigs/",
+                    pattern = ".bw",
+                    all.files = T,
+                    full.names = T)
+bigwig.files
+```
+
+Since loading several bigwigs might be pretty slow in software like IGV users
+might want to reduce the bigwig files to a single chromossome (i.e. chr20). 
+The Rscript below can do it by transforming the bigwig to a wig with only chr20
+then converting the wig back to big wig.
+
+You can downlaod at the executable for`bigWigToWig`and `wigToBigWig` at ENCODE (http://hgdownload.cse.ucsc.edu/admin/exe/)
+and the hg38.chrom.sizes is available at github (https://raw.githubusercontent.com/igvteam/igv/master/genomes/sizes/hg38.chrom.sizes)
+
+```{r, eval=FALSE}
+chr <- 20
+dirout <- paste0("chr",chr)
+dir.create(dirout)
+files <- dir(path = ".",pattern = "bw",full.names = T)
+for(f in files){
+  f.in <- f
+  f.out <- gsub("bw","wig",f)
+  f.out.chr <- file.path(dirout,gsub("\\.bw",paste0("_chr",chr,".bw"),f))
+  cmd <- paste0("bigWigToWig -chrom=chr",chr," ", f.in," ", f.out)
+  system(cmd)
+  cmd <- paste0("wigToBigWig ", f.out," hg38.chrom.sizes ", f.out.chr)
+  system(cmd)
+}
+```
+
+
+### Visualizing the  bigwig in R
+
+```{R,eval = FALSE}
+library(karyoploteR)
+HNF4A.region <- toGRanges("chr20:44,355,700-44,434,596")
+kp <- plotKaryotype(zoom = HNF4A.region,genome = "hg38",plot.type = 2)
+
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+
+genes.data <- makeGenesDataFromTxDb(TxDb.Hsapiens.UCSC.hg38.knownGene,
+                                    karyoplot = kp,
+                                    plot.transcripts = TRUE, 
+                                    plot.transcripts.structure = TRUE)
+genes.data <- addGeneNames(genes.data)
+genes.data <- mergeTranscripts(genes.data)
+
+
+kp <- plotKaryotype(zoom = HNF4A.region,genome = "hg38", cex = 2)
+kpPlotGenes(kp, data = genes.data, r0 = 0, r1 = 0.15, gene.name.cex = 0.5)
+
+
+bigwig.files <- dir(path = "ATAC-seq_data/ESCA_bigWigs/",
+                    pattern = ".bw",
+                    all.files = T,
+                    full.names = T)
+bigwig.files
+out.at <- autotrack(1:length(bigwig.files), 
+                    length(bigwig.files), 
+                    margin = 0.3, 
+                    r0 = 0.23)
+
+kpAddLabels(kp, 
+            labels = "ATAC-seq", 
+            r0 = out.at$r0, 
+            r1 = out.at$r1, 
+            cex = 3.5,
+            srt = 90, 
+            pos = 1, 
+            label.margin = 0.14)
+
+for(i in seq_len(length(bigwig.files))) {
+  bigwig.file <- bigwig.files[i]
+  at <- autotrack(i, length(bigwig.files), r0 = 0.35, r1 = 1)
+  kp <- kpPlotBigWig(kp, 
+                     data = bigwig.file, 
+                     ymax = "visible.region", 
+                     r0 = at$r0, r1 = at$r1)
+  computed.ymax <- ceiling(kp$latest.plot$computed.values$ymax)
+  kpAxis(kp, ymin = 0, ymax = computed.ymax, numticks = 2, r0 = at$r0, r1 = at$r1)
+  kpAddLabels(kp, 
+              labels = names(bigwig.files)[i], 
+              r0 = at$r0, r1 = at$r1, 
+              cex = 1.6, label.margin = 0.035)
+}
+```
+
+
+# Session information
+```{r}
+sessionInfo()
+```

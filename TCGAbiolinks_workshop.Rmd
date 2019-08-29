@@ -1,0 +1,232 @@
+---
+title: "Workshop - TCGA data analysis"
+author: "Benjamin P. Berman, Tiago C. Silva"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+    toc: true
+    number_sections: true
+bibliography: tcgabiolinks.bib    
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(dpi = 300)
+```
+
+
+
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>TCGAbiolinksGUI</title>
+    <meta name="description" content="TCGAbiolinksGUI.">
+    <!-- Latest compiled JavaScript -->
+    <script src="http://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js"></script>
+</head>
+<style> body {text-align: justify} </style>
+
+
+# Instructor names and contact information
+
+1. Benjamin P. Berman  (Benjamin.Berman at cshs.org)
+2. Tiago C. Silva (tiagochst at gmail.com)
+
+# Workshop description
+
+## Aims
+
+This workshop will:
+
+1. Introduce you to the TCGA (The Cancer Genome Atlas) data available at the NCI's Genomic Data Commons (GDC).
+2. Demonstrate how to access and import TCGA data using the R/Bioconductor package TCGAbiolinks [@colaprico2015tcgabiolinks] 
+3. Provide intruction to visualize  copy number alteration and mutation data using the R/Bioconductor package maftools
+
+
+## Useful links 
+
+- the NCI's Genomic Data Commons (GDC): https://gdc.cancer.gov/.
+- TCGAbiolinks package: http://bioconductor.org/packages/TCGAbiolinks/
+- maftools package: http://bioconductor.org/packages/maftools/
+
+## Reference articles 
+
+- TCGAbiolinks:
+  - Colaprico, Antonio, et al. “TCGAbiolinks: an R/Bioconductor package for integrative analysis of TCGA data.” Nucleic acids research 44.8 (2015): e71-e71.
+Silva, Tiago C., et al. “TCGA Workflow: Analyze cancer genomics and epigenomics data using Bioconductor packages.” F1000Research 5 (2016). (https://f1000research.com/articles/5-1542/v2)
+  - Mounir, Mohamed, et al. “New functionalities in the TCGAbiolinks package for the study and integration of cancer data from GDC and GTEx.” PLoS computational biology 15.3 (2019): e1006701. (https://doi.org/10.1371/journal.pcbi.1006701)
+  -  Silva TC, Colaprico A, Olsen C et al.TCGA Workflow: Analyze cancer genomics and epigenomics data using Bioconductor packages [version 2; peer review: 1 approved, 2 approved with reservations]. F1000Research 2016, 5:1542
+(https://doi.org/10.12688/f1000research.8923.2). 
+
+- The NCI's Genomic Data Commons (GDC):
+  - Gao, Galen F., et al. “Before and After: Comparison of Legacy and Harmonized TCGA Genomic Data Commons’ Data.” Cell systems 9.1 (2019): 24-34. (https://doi.org/10.1016/j.cels.2019.06.006)
+
+
+##  R/Bioconductor packages used
+
+* [TCGAbiolinks](http://bioconductor.org/packages/TCGAbiolinks/)
+* [MultiAssayExperiment](http://bioconductor.org/packages/MultiAssayExperiment/)
+* [maftools](http://bioconductor.org/packages/maftools/)
+
+
+
+# Introduction
+
+## Understanding GDC (genomics data common portal)
+
+In this workshop we will access (The Cancer Genome Atlas) data available at the NCI's Genomic Data Commons (GDC).
+Before we start, it is important to know that the data is deposit in two different databases: 
+- The legacy archive (https://portal.gdc.cancer.gov/legacy-archive/search/f) which contains unharmonized legacy data from repositories that predate the GDC (e.g. CGHub). Also, legacy data is not actively maintained, processed, or harmonized by the GDC (Source: https://docs.gdc.cancer.gov/Data_Portal/Users_Guide/Legacy_Archive/)
+
+- Harmonized database (https://portal.gdc.cancer.gov/) which contains data from many cancer projects processed  using standardized pipelines and the reference genome GRCh38 (hg38). This gives the advantage of analyzing multiple cancer types or the same cancer type across multiple projects. You can find more information about the pipelines supporting data harmonization at https://gdc.cancer.gov/about-data/gdc-data-harmonization and at https://docs.gdc.cancer.gov/Encyclopedia/pages/Harmonized_Data/.
+
+An overview of the web portal is available at https://docs.gdc.cancer.gov/Data_Portal/Users_Guide/Getting_Started/.
+
+![Figure legend: TCGA databases (blue: legacy archive. red: harmnized database) Source: https://portal.gdc.cancer.gov/](images/main.png)
+
+
+## Understanding TCGA data
+
+### Data access
+
+GDC provides the data with two access levels:
+
+- Open: includes high level genomic data that is not individually identifiable, as well as most clinical and all biospecimen data elements.
+- Controlled: includes individually identifiable data such as low level genomic sequencing data, germline variants, SNP6 genotype data, and certain clinical data elements 
+
+You can find more information about those two levels and how to get access to controlled data at: https://gdc.cancer.gov/access-data/data-access-processes-and-tools.
+
+### TCGA barcode description
+
+Each TCGA sample has a unique identifier called TCGA barcode, which contains important information about each sample. 
+A drescription of the barcode is shown below (Source: https://docs.gdc.cancer.gov/Encyclopedia/pages/TCGA_Barcode/).
+
+![Figure legend: TCGA barcode Source: https://docs.gdc.cancer.gov/Encyclopedia/pages/TCGA_Barcode/](images/TCGAbarcode.png)
+
+You can find a table with all the code and meanings at https://gdc.cancer.gov/resources-tcga-users/tcga-code-tables.
+The Sample Type Codes is shown below:
+
+![Figure legend: TCGA samples type. Source: https://gdc.cancer.gov/resources-tcga-users/tcga-code-tables/sample-type-codes](images/sampletypes.png)
+
+### Data structure
+
+In order to filter the data available in GDC some fields are available such as project (TCGA, TARGET, etc), data category (Transcriptome Profiling, DNA methylation,Clinical, etc), data type (Gene Expression Quantification, Isoform Expression Quantification, Methylation Beta Value, etc), experimental strategy (miRNA-Seq, RNA-Seq, etc,), Workflow Type, platfom, access type and others.
+
+![Figure legend: Data category filter](images/category.png)
+
+![Figure legend: Data type filter](images/category.png)
+
+In terms of data granularity, a project has data on several categories, each category contains several data types that might have been produced with different workflows,experimental strategy and platforms. In that way, if you  select data type "Gene Expression Quantification" the data category will be Transcriptome Profiling.
+
+![Figure legend: Filtering by Gene Expression Quantification](images/ExampleFilter.png)
+
+You can find the entry possibilities for each filter at the repository page of the database at https://portal.gdc.cancer.gov/repository.
+
+
+# Working with TCGA data
+
+
+During this workshop we will be using open access data from the harmonized GDC database (hg38 version), which can be accessed 
+at https://portal.gdc.cancer.gov/.
+
+Through the next sections we will:
+
+1. Access TCGA clinical data
+2. Search, download and make an R object from TCGA data
+ - RNA-seq data
+ - DNA methylation
+3. Download samples metadata
+4. Download and visualize mutations
+5. Download and visualize copy number alterations 
+
+## Loading required packages
+
+```{r, message=FALSE}
+library(TCGAbiolinks)
+library(MultiAssayExperiment)
+library(maftools)
+```
+
+
+```{R, eval = FALSE, include = FALSE}
+withr::with_envvar(c(R_REMOTES_NO_ERRORS_FROM_WARNINGS="true"), 
+  remotes::install_github('BioinformaticsFMRP/TCGAbiolinks')
+)
+```
+
+## Clinical data
+
+
+```{R, eval = FALSE}
+clinical <- GDCquery_clinic("TCGA-COAD")
+```
+
+
+## RNA-Seq data
+
+## Mutation
+
+**TCGAbiolinks** has provided a few functions to download mutation data from GDC.
+There are two options to download the data:
+
+1. Use `GDCquery_Maf` which will download MAF aligned against hg38.
+
+This example will download MAF (mutation annotation files) for variant calling pipeline muse.
+Pipelines options are: `muse`, `varscan2`, `somaticsniper`, `mutect`. For more information please access
+[GDC docs](https://docs.gdc.cancer.gov/Data/Bioinformatics_Pipelines/DNA_Seq_Variant_Calling_Pipeline/).
+
+
+```{R, eval = FALSE}
+library(maftools)
+library(dplyr)
+library(DT)
+
+maf <- GDCquery_Maf("COAD", pipelines = "muse") %>% read.maf
+datatable(getSampleSummary(maf),
+          filter = 'top',
+          options = list(scrollX = TRUE, keys = TRUE, pageLength = 5), 
+          rownames = FALSE)
+plotmafSummary(maf = maf, rmOutlier = TRUE, addStat = 'median', dashboard = TRUE)
+oncoplot(maf = maf, top = 10, removeNonMutated = TRUE)
+titv = titv(maf = maf, plot = FALSE, useSyn = TRUE)
+#plot titv summary
+plotTiTv(res = titv)
+
+```
+
+## Copy number alteration data
+
+## DNA methylation data
+
+## ATAC-Seq data
+
+Please, check our ATAC-seq Workshop: http://rpubs.com/tiagochst/atac_seq_workshop
+
+# Session information
+```{r}
+sessionInfo()
+```
+
+# Workshop materials
+
+## Workshops HTMLs
+
+* ELMER data Workshop HTML: http://rpubs.com/tiagochst/elmer-data-workshop-2019
+* ELMER analysis Workshop HTML: http://rpubs.com/tiagochst/ELMER_workshop
+* ATAC-seq Workshop HTML: http://rpubs.com/tiagochst/atac_seq_workshop
+
+
+## Workshop videos
+
+We have a set of recorded videos, explaining some of the workshops.
+
+* All videos playlist: https://www.youtube.com/playlist?list=PLoDzAKMJh15kNpCSIxpSuZgksZbJNfmMt
+* ELMER algorithm: https://youtu.be/PzC31K9vfu0
+* ELMER data: https://youtu.be/R00wG--tGo8
+* ELMER analysis part1 : https://youtu.be/bcd4uyxrZCw
+* ELMER analysis part2: https://youtu.be/vcJ_DSCt4Mo
+* ELMER summarizing several analysis: https://youtu.be/moLeik7JjLk
+* ATAC-Seq workshop: https://youtu.be/3ftZecz0lU4
+
+# References

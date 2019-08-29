@@ -1,0 +1,250 @@
+---
+title: "Workshop for multi-omics analysis with ELMER - retrieving TCGA data"
+author: "Benjamin P. Berman, Tiago C. Silva"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+    toc: true
+    number_sections: true
+    df_print: paged
+bibliography: bibliography_elmer_data.bib
+    
+---
+
+<style> body {text-align: justify} </style>
+
+# Packages used in this tutorial
+
+The major packages used in this tutorial as listed below. Vignettes with example are available
+in the links provided. 
+
+* TCGAbiolinks: http://bioconductor.org/packages/TCGAbiolinks/ [@colaprico2015tcgabiolinks]
+* ELMER: http://bioconductor.org/packages/ELMER/ [@silva2018elmer]
+
+# Creating a MultiAssayExperiment object
+
+A MultiAssayExperiment is a R data structure created to store different assays (RNA-Seq, DNA methylation, ATAC-Sec, ...) and samples metadata (age, gender, treatment information, etc.) in one single object.
+This data structure is used as to create the input for the ELMER analysis, which requires a MultiAssayExperiment containing DNA methylation and gene expression for all samples. 
+
+For more information about the MultiAssayExperiment you can check its Bioconductor page: http://bioconductor.org/packages/MultiAssayExperiment/.
+
+We can use the TCGAbiolinks package (http://bioconductor.org/packages/TCGAbiolinks/) to retrieve TCGA DNA methylation and gene expression data from GDC data portal https://portal.gdc.cancer.gov/. TCGAbiolinks searches the data, download it and then transform it into either a matrix or a SummarizedExperiment (http://bioconductor.org/packages/SummarizedExperiment/), which is another Bioconductor data structure to handle a single assay and its samples metadata.
+
+In this tutorial we will download data for 4 TCGA ESCA samples and create a MultiAssayExperiment.
+The code to downaload all samples aligned to the genome of reference hg38 is available in the next section.
+
+## Downloading DNA methylation array with hg19 annotation
+
+
+```{R message=FALSE}
+library(TCGAbiolinks)
+library(SummarizedExperiment)
+
+# Define samples to be downloaded - to download all samples just remove the barcode argument
+samples <- c("TCGA-2H-A9GF","TCGA-2H-A9GG","TCGA-2H-A9GH","TCGA-2H-A9GI")
+
+
+# DNA methylation data aligned to hg19
+query.met <- GDCquery(project =  "TCGA-ESCA",
+                      legacy = TRUE,
+                      data.category = "DNA methylation",
+                      barcode = samples, # Filter by barcode
+                      platform = "Illumina Human Methylation 450",
+                      sample.type = "Primary solid Tumor")
+
+GDCdownload(query.met)
+
+methylation <- GDCprepare(query = query.met,
+                          save = TRUE,
+                          save.filename = paste0("TCGA-ESCA_450K_hg19.rda"),
+                          summarizedExperiment = TRUE
+)
+
+# Checking object
+methylation
+
+# Checking DNA methylation beta-values  of the first 5 probes (rows)
+as.data.frame(assay(methylation)[1:4,])
+```
+
+
+## Downloading RNA-seq aligned against hg19
+
+
+
+```{R message=FALSE}
+
+# Gene expression
+query.exp <- GDCquery(project = "TCGA-ESCA",
+                      data.category = "Gene expression",
+                      data.type = "Gene expression quantification",
+                      platform = "Illumina HiSeq", 
+                      file.type  = "normalized_results",
+                      experimental.strategy = "RNA-Seq",
+                      barcode = samples,
+                      legacy = TRUE)
+GDCdownload(query.exp, method = "api", files.per.chunk = 10)
+gene.expression <- GDCprepare(query.exp)
+
+# Checking object
+gene.expression
+
+# Checking expression values of the first 5 genes (rows)
+as.data.frame(assay(gene.expression)[1:5,])
+```
+
+
+## Creating a MultiAssayExperiment
+
+To create a MultiAssayExperiment object, ELMER provides the function `createMAE`, which requires the DNA methylation data
+(either a matrix or a Summarized Experiment object) [function argument `met`] and Gene expression data 
+(either a matrix or a Summarized Experiment object) [function argument `exp`].
+
+For DNA methylation we only keep distal probes (at least $2Kbp$ away from TSS) since it tries to
+infer for distal interactions regulating genes. ELMER provides the function `get.feature.probe`
+to retrieve those set of probes. 
+
+The DNA methylation data from the 450k platform has three types of probes cg (CpG loci), ch (non-CpG loci) and rs (SNP assay). 
+The last type of probe can be used for sample identification and tracking and should be excluded for differential methylation analysis according to the ilumina manual (https://www.illumina.com/content/dam/illumina-support/documents/documentation/software_documentation/genomestudio/genomestudio-2011-1/genomestudio-methylation-v1-8-user-guide-11319130-b.pdf).  Along with the filter based on the distance to TSS, probes with the rs prefix
+is also removed by `get.feature.probe`. 
+
+Finally, some probes should also be masked for other reasons presented 
+by @zhou2017comprehensive and listed below (source: https://zwdzwd.github.io/InfiniumAnnotation).
+
+
+
+* MASK.mapping - whether the probe is masked for mapping reason. Probes retained should have high quality (>=40 on 0-60 scale) consistent (with designed MAPINFO) * mapping (for both in the case of type I) without INDELs. 
+* MASK.typeINextBaseSwitch - whether the probe has a SNP in the extension base that causes a color channel switch from the official annotation (described as color-channel-switching, or CCS SNP in the reference). These probes should be processed differently than designed (by summing up both color channels instead of just the annotated color channel). 
+* MASK.rmsk15 - whether the 15bp 3'-subsequence of the probe overlap with repeat masker, this MASK is NOT recommended. 
+* MASK.sub25.copy, MASK.sub30.copy, MASK.sub35.copy and MASK.sub40.copy - whether the 25bp, 30bp, 35bp and 40bp 3'-subsequence of the probe is non-unique. 
+* MASK.snp5.common - whether 5bp 3'-subsequence (including extension for typeII) overlap with any of the common SNPs from dbSNP (global MAF can be under 1%). 
+* MASK.snp5.GMAF1p - whether 5bp 3'-subsequence (including extension for typeII) overlap with any of the SNPs with global MAF >1%. 
+*MASK.extBase - probes masked for extension base inconsistent with specified color channel (type-I) or CpG (type-II) based on mapping. 
+* MASK.general - recommended general purpose masking merged from "MASK.sub30.copy", "MASK.mapping", "MASK.extBase", "MASK.typeINextBaseSwitch" and "MASK.snp5.GMAF1p". 
+
+Thus, `MASK.general` is used by ELMER to remove the masked probes from the eavluated distal probes.
+
+
+
+```{R message=FALSE}
+# 3) Create ELMER input
+#    A MultiAssayExperiment with samples 
+#    that has both RNA-seq and 450K DNA methylation (distal probes)
+library(SummarizedExperiment)
+library(ELMER)
+
+# 1) retrieve distal probes
+genome <- "hg19"
+distal.probes <- get.feature.probe(feature = NULL,
+                                   genome = genome,
+                                   met.platform = "450K") 
+ranges(distal.probes)
+# Number of distal probes
+length(distal.probes)
+```
+
+For Gene expression data the row names accepted are Ensembl gene IDs, since our data 
+has gene name as inout we will change the row names.
+
+```{R message=FALSE}
+# 2) ELMER required ENSEMBL ID as rownames for gene expression
+# for hg19, gene symbols|entre_id were the default default for RNA-seq
+# so we need to rename our rows to the ensembl_gene_id which is 
+# already in the rowRanges information
+rowRanges(gene.expression)
+rownames(gene.expression)  <- rowRanges(gene.expression)$ensembl_gene_id
+```
+
+Finally, we can use `createMAE` setting the genome of reference ("hg19" or "hg38") 
+used to add DNA methylation probes metadata and gene metadata information. 
+To perform a correlation between DNA methylation and gene expression it is better to take the log2 of expression data
+(executed if the argument `linearize.exp` is TRUE).
+Also, if samples are from `TCGA`, ELMER will
+automatically pull samples information from TCGA, otherwise it should be provided by the user
+using `colData` and `sampleMap` arguments (tip: you can check the documentation of a function in R with the following command `?createMAE`)
+
+```{R message=FALSE}
+# Create MAE
+mae <- createMAE(exp = gene.expression,
+                 met = methylation,
+                 met.platform = "450K",
+                 genome = genome,
+                 linearize.exp = TRUE, # takes log2(expression + 1)
+                 filter.probes = distal.probes,
+                 save = FALSE,
+                 TCGA = TRUE) 
+```
+
+You can check the MAE object using some accessor described in this [cheatsheet](https://bioconductor.org/packages/release/bioc/vignettes/MultiAssayExperiment/inst/doc/MultiAssayExperiment_cheatsheet.pdf).
+
+```{R message=FALSE}
+mae
+
+# Since it is TCGA ELMER add autmaticalle the samples information
+as.data.frame(colData(mae)[1:4,1:5])
+
+# Available information
+as.data.frame(colnames(colData(mae)))
+```
+
+The next sections we will provide the code to download the complete TCGA ESCA dataset.
+
+# Code to retrieve all TCGA-ESCA data
+
+The code below downloaded all TCGA-ESCA data (DNA methylation and gene expression), 
+but due to the long time to download the data it will not be run.
+
+
+```{R, eval = FALSE}
+# 1) get all DNA methylation data aligned annotated with hg38 information
+query.met <- GDCquery(project =  "TCGA-ESCA",
+                      data.category = "DNA Methylation",
+                      platform = "Illumina Human Methylation 450",
+                      sample.type = "Primary solid Tumor")
+GDCdownload(query.met)
+methylation <- GDCprepare(query = query.met,
+                          save = TRUE,
+                          save.filename = "TCGA-ESCA_450K_hg38.rda"
+)
+
+
+
+# 1) get all RNA-seq data aligned against hg38
+query.exp <- GDCquery(project = "TCGA-ESCA",
+                  data.category = "Transcriptome Profiling",
+                  data.type = "Gene Expression Quantification", 
+                  workflow.type = "HTSeq - FPKM-UQ")
+GDCdownload(query.exp, method = "api", files.per.chunk = 10)
+gene.expression <- GDCprepare(query.exp, 
+                              save = TRUE, 
+                              save.filename = "TCGA-ESCA_450K_hg38.rda")
+                              
+
+# 3) Create ELMER input
+#    A MultiAssayExperiment with samples 
+#    that has both RNA-seq and 450K DNA methylation (distal probes)
+genome <- "hg38"
+distal.probes <- get.feature.probe(feature = NULL,
+                                   genome = genome,
+                                   met.platform = "450K") 
+
+mae <- createMAE(exp = gene.expression,
+                 met = methylation,
+                 met.platform = "450K",
+                 genome = genome,
+                 linearize.exp = TRUE,
+                 filter.probes = distal.probes,
+                 save = TRUE,
+                 save.filename = "TCGA_ESCA_MAE_distal_regions.rda",
+                 TCGA = TRUE)                               
+```
+
+
+# Session Information
+```{R}
+sessionInfo()
+```
+
+# References
