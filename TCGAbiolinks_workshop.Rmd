@@ -3,12 +3,14 @@ title: "Workshop - TCGA data analysis"
 author: "Benjamin P. Berman, Tiago C. Silva"
 date: "`r Sys.Date()`"
 output:
-  prettydoc::html_pretty:
-    theme: cayman
-    highlight: github
+  rmarkdown::html_document:
+    theme: lumen
+    highlight: zenburn
     toc: true
     number_sections: true
     df_print: paged
+    code_download: true
+    toc_float: true
 bibliography: tcgabiolinks.bib    
 ---
 
