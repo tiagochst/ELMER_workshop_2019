@@ -19,6 +19,8 @@ knitr::opts_chunk$set(dpi = 300)
 ```
 
 <style>
+div.blue { background-color:#e6f0ff; border-radius: 5px; padding: 20px;}
+
  body {text-align: justify}
 p.caption {
   font-size: 0.9em;
@@ -90,11 +92,16 @@ Silva, Tiago C., et al. “TCGA Workflow: Analyze cancer genomics and epigenomic
 
 In this workshop we will access (The Cancer Genome Atlas) data available at the NCI's Genomic Data Commons (GDC).
 Before we start, it is important to know that the data is deposit in two different databases: 
+
 - The legacy archive (https://portal.gdc.cancer.gov/legacy-archive/search/f) which contains unharmonized legacy data from repositories that predate the GDC (e.g. CGHub). Also, legacy data is not actively maintained, processed, or harmonized by the GDC (Source: https://docs.gdc.cancer.gov/Data_Portal/Users_Guide/Legacy_Archive/)
 
 - Harmonized database (https://portal.gdc.cancer.gov/) which contains data from many cancer projects processed using standardized pipelines and the reference genome GRCh38 (hg38). This gives the advantage of analyzing multiple cancer types or the same cancer type across multiple projects. You can find more information about the pipelines supporting data harmonization at https://gdc.cancer.gov/about-data/gdc-data-harmonization and at https://docs.gdc.cancer.gov/Encyclopedia/pages/Harmonized_Data/.
 
 An overview of the web portal is available at https://docs.gdc.cancer.gov/Data_Portal/Users_Guide/Getting_Started/.
+
+Also, a more in-depth comparison between the legacy and Harmonized data was recently published:
+
+  - Gao, Galen F., et al. “Before and After: Comparison of Legacy and Harmonized TCGA Genomic Data Commons’ Data.” Cell systems 9.1 (2019): 24-34. (https://doi.org/10.1016/j.cels.2019.06.006)
 
 ![Figure: TCGA databases (blue: legacy archive. red: harmonized database) Source: https://portal.gdc.cancer.gov/](images/main.png)
 
